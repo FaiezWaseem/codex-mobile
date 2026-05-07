@@ -23,18 +23,26 @@ export function HomeScreen({
   onOpenTasks,
   onOpenSettings,
   input,
+  pendingAttachments,
+  bearerToken,
   isStreaming,
   messages,
   onChangeInput,
+  onAddAttachment,
+  onRemoveAttachment,
   onSendMessage,
 }: {
   theme: AppTheme;
   onOpenTasks: () => void;
   onOpenSettings: () => void;
   input: string;
+  pendingAttachments: Parameters<typeof Composer>[0]['attachments'];
+  bearerToken: string;
   isStreaming: boolean;
   messages: ChatMessage[];
   onChangeInput: (value: string) => void;
+  onAddAttachment: () => void | Promise<void>;
+  onRemoveAttachment: (attachmentId: string) => void;
   onSendMessage: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -105,7 +113,12 @@ export function HomeScreen({
         {!isEmptyState ? (
           <View style={styles.chatThread}>
             {messages.map((message) => (
-              <ChatMessageBubble key={message.id} theme={theme} message={message} />
+              <ChatMessageBubble
+                key={message.id}
+                theme={theme}
+                message={message}
+                imageAuthToken={bearerToken}
+              />
             ))}
           </View>
         ) : null}
@@ -133,6 +146,9 @@ export function HomeScreen({
           placeholder="Type a message or hold to talk..."
           value={input}
           onChangeText={onChangeInput}
+          attachments={pendingAttachments}
+          onAddAttachment={onAddAttachment}
+          onRemoveAttachment={onRemoveAttachment}
           onSend={onSendMessage}
           disabled={isStreaming}
         />

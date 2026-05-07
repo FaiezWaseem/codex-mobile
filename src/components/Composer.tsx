@@ -1,12 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Image } from 'react-native';
 import type { AppTheme } from '../theme/tokens';
+import type { PendingImageAttachment } from '../hooks/useRelayChat';
 
 export function Composer({
   theme,
   placeholder,
   value,
   onChangeText,
+  attachments,
+  onAddAttachment,
+  onRemoveAttachment,
   onSend,
   disabled,
 }: {
@@ -14,10 +18,13 @@ export function Composer({
   placeholder: string;
   value: string;
   onChangeText: (value: string) => void;
+  attachments?: PendingImageAttachment[];
+  onAddAttachment?: () => void | Promise<void>;
+  onRemoveAttachment?: (attachmentId: string) => void;
   onSend: () => void;
   disabled?: boolean;
 }) {
-  const canSend = Boolean(value.trim()) && !disabled;
+  const canSend = (Boolean(value.trim()) || Boolean(attachments?.length)) && !disabled;
 
   const handleSend = () => {
     if (!canSend) {
@@ -39,7 +46,40 @@ export function Composer({
         },
       ]}
     >
+      {attachments && attachments.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.attachmentStrip}
+        >
+          {attachments.map((attachment) => (
+            <View key={attachment.id} style={styles.attachmentCard}>
+              <Image source={{ uri: attachment.localUri }} style={styles.attachmentImage} />
+              <Pressable
+                onPress={() => onRemoveAttachment?.(attachment.id)}
+                style={[styles.attachmentRemove, { backgroundColor: theme.colors.surface }]}
+              >
+                <Ionicons name="close" size={12} color={theme.colors.text} />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      ) : null}
       <View style={styles.row}>
+        <Pressable
+          onPress={() => void onAddAttachment?.()}
+          disabled={disabled}
+          style={[
+            styles.attachButton,
+            {
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.border,
+              opacity: disabled ? 0.65 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="image-outline" size={18} color={theme.colors.textMuted} />
+        </Pressable>
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -89,6 +129,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
+  },
+  attachmentStrip: {
+    gap: 10,
+    paddingBottom: 10,
+  },
+  attachmentCard: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  attachmentImage: {
+    width: '100%',
+    height: '100%',
+  },
+  attachmentRemove: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 1,
   },
   composerInput: {
     flex: 1,

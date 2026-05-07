@@ -22,18 +22,26 @@ export function TaskDetailScreen({
   task,
   onBack,
   input,
+  pendingAttachments,
+  bearerToken,
   isStreaming,
   messages,
   onChangeInput,
+  onAddAttachment,
+  onRemoveAttachment,
   onSendMessage,
 }: {
   theme: AppTheme;
   task: Task;
   onBack: () => void;
   input: string;
+  pendingAttachments: Parameters<typeof Composer>[0]['attachments'];
+  bearerToken: string;
   isStreaming: boolean;
   messages: ChatMessage[];
   onChangeInput: (value: string) => void;
+  onAddAttachment: () => void | Promise<void>;
+  onRemoveAttachment: (attachmentId: string) => void;
   onSendMessage: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -127,7 +135,12 @@ export function TaskDetailScreen({
         <View style={styles.chatSection}>
           <Text style={[styles.chatSectionTitle, { color: theme.colors.text }]}>Chat</Text>
           {messages.map((message) => (
-            <ChatMessageBubble key={message.id} theme={theme} message={message} />
+            <ChatMessageBubble
+              key={message.id}
+              theme={theme}
+              message={message}
+              imageAuthToken={bearerToken}
+            />
           ))}
           <Text style={[styles.chatHint, { color: theme.colors.textMuted }]}>
             {isStreaming
@@ -160,6 +173,9 @@ export function TaskDetailScreen({
           placeholder="Type a message or hold to talk..."
           value={input}
           onChangeText={onChangeInput}
+          attachments={pendingAttachments}
+          onAddAttachment={onAddAttachment}
+          onRemoveAttachment={onRemoveAttachment}
           onSend={onSendMessage}
           disabled={isStreaming}
         />

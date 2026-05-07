@@ -16,11 +16,22 @@ export type Capability = {
 
 export type ChatRole = 'user' | 'assistant';
 
+export type ChatAttachment = {
+  id: string;
+  type: 'image';
+  uri: string;
+  relayUrl?: string;
+  previewUri?: string;
+  mimeType?: string;
+  fileName?: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
   createdAt: string;
+  attachments?: ChatAttachment[];
   streaming?: boolean;
   error?: boolean;
 };

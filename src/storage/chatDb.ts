@@ -10,6 +10,7 @@ type ChatMessageRow = {
   id: string;
   role: ChatMessage['role'];
   content: string;
+  attachments_json: string | null;
   created_at: string;
   streaming: number;
   error: number;
@@ -29,21 +30,35 @@ async function getDatabase() {
   const db = await databasePromise;
 
   if (!initPromise) {
-    initPromise = db.execAsync(`
-      PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS chat_messages (
-        id TEXT PRIMARY KEY NOT NULL,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        streaming INTEGER NOT NULL DEFAULT 0,
-        error INTEGER NOT NULL DEFAULT 0,
-        position INTEGER NOT NULL
+    initPromise = (async () => {
+      await db.execAsync(`
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE IF NOT EXISTS chat_messages (
+          id TEXT PRIMARY KEY NOT NULL,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT NOT NULL,
+          attachments_json TEXT,
+          created_at TEXT NOT NULL,
+          streaming INTEGER NOT NULL DEFAULT 0,
+          error INTEGER NOT NULL DEFAULT 0,
+          position INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_session_position
+        ON chat_messages (session_id, position);
+      `);
+
+      const columns = await db.getAllAsync<{ name: string }>(
+        `PRAGMA table_info(chat_messages)`,
       );
-      CREATE INDEX IF NOT EXISTS idx_chat_messages_session_position
-      ON chat_messages (session_id, position);
-    `);
+
+      if (!columns.some((column) => column.name === 'attachments_json')) {
+        await db.execAsync(`
+          ALTER TABLE chat_messages
+          ADD COLUMN attachments_json TEXT;
+        `);
+      }
+    })();
   }
 
   await initPromise;
@@ -54,7 +69,7 @@ export async function loadChatMessages(sessionId: string): Promise<ChatMessage[]
   const db = await getDatabase();
   const rows = await db.getAllAsync<ChatMessageRow>(
     `
-      SELECT id, role, content, created_at, streaming, error, position
+      SELECT id, role, content, attachments_json, created_at, streaming, error, position
       FROM chat_messages
       WHERE session_id = ?
       ORDER BY position ASC
@@ -66,6 +81,9 @@ export async function loadChatMessages(sessionId: string): Promise<ChatMessage[]
     id: row.id,
     role: row.role,
     content: row.content,
+    attachments: row.attachments_json
+      ? (JSON.parse(row.attachments_json) as ChatMessage['attachments'])
+      : undefined,
     createdAt: row.created_at,
     streaming: Boolean(row.streaming),
     error: Boolean(row.error),
@@ -85,16 +103,18 @@ export async function saveChatMessages(sessionId: string, messages: ChatMessage[
           session_id,
           role,
           content,
+          attachments_json,
           created_at,
           streaming,
           error,
           position
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       message.id,
       sessionId,
       message.role,
       message.content,
+      message.attachments ? JSON.stringify(message.attachments) : null,
       message.createdAt,
       message.streaming ? 1 : 0,
       message.error ? 1 : 0,

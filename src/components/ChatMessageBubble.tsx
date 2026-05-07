@@ -440,9 +440,11 @@ function formatMessageTime(createdAt: string) {
 export function ChatMessageBubble({
   theme,
   message,
+  imageAuthToken,
 }: {
   theme: AppTheme;
   message: ChatMessage;
+  imageAuthToken?: string;
 }) {
   const isUser = message.role === 'user';
   const textColor = isUser ? '#FFFFFF' : theme.colors.text;
@@ -503,6 +505,32 @@ export function ChatMessageBubble({
           },
         ]}
       >
+        {message.attachments?.map((attachment) => (
+          <Pressable
+            key={attachment.id}
+            onPress={() => void handleOpenLink(attachment.uri)}
+            style={styles.blockSpacing}
+          >
+            <Image
+              source={{
+                uri: attachment.previewUri || attachment.uri,
+                headers:
+                  imageAuthToken && !attachment.previewUri
+                    ? {
+                        Authorization: `Bearer ${imageAuthToken}`,
+                      }
+                    : undefined,
+              }}
+              style={[
+                styles.messageImage,
+                {
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              resizeMode="cover"
+            />
+          </Pressable>
+        ))}
         {renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink, openedLinks)}
       </View>
       <View style={[styles.footerRow, { alignSelf: isUser ? 'flex-end' : 'flex-start' }]}>

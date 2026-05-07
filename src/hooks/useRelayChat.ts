@@ -1,6 +1,7 @@
+import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadChatMessages, saveChatMessages } from '../storage/chatDb';
-import type { AgentConfig, ChatMessage } from '../types';
+import type { AgentConfig, ChatAttachment, ChatMessage } from '../types';
 
 type UseRelayChatOptions = {
   assistantName?: string;
@@ -10,21 +11,95 @@ type UseRelayChatOptions = {
   systemPrompt?: string;
 };
 
+export type PendingImageAttachment = {
+  id: string;
+  type: 'image';
+  localUri: string;
+  mimeType?: string;
+  fileName?: string;
+  base64: string;
+};
+
+type RelayContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 type RelayMessage = {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | RelayContentPart[];
+};
+
+type RelayErrorInfo = {
+  status: number;
+  statusText: string;
+  bodyText: string;
+  bodyJson?: unknown;
 };
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+async function readRelayError(response: Response): Promise<RelayErrorInfo> {
+  const bodyText = await response.text();
+  let bodyJson: unknown;
+
+  try {
+    bodyJson = bodyText ? JSON.parse(bodyText) : undefined;
+  } catch {
+    bodyJson = undefined;
+  }
+
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    bodyText,
+    bodyJson,
+  };
+}
+
+function extractRelayErrorMessage(errorInfo: RelayErrorInfo) {
+  if (errorInfo.bodyJson && typeof errorInfo.bodyJson === 'object') {
+    const typed = errorInfo.bodyJson as {
+      error?: string;
+      message?: string;
+      detail?: string;
+    };
+
+    return typed.error || typed.message || typed.detail || '';
+  }
+
+  return errorInfo.bodyText.trim();
+}
+
+function logRelayError(label: string, details: Record<string, unknown>) {
+  console.error(`[relay] ${label}`, details);
+}
+
 function toRelayMessages(messages: ChatMessage[], systemPrompt?: string): RelayMessage[] {
   const baseMessages = messages
-    .filter((message) => message.content.trim())
+    .filter(
+      (message) => message.content.trim() || (message.attachments && message.attachments.length > 0),
+    )
     .map<RelayMessage>((message) => ({
       role: message.role,
-      content: message.content,
+      content:
+        message.attachments && message.attachments.length > 0
+          ? [
+              ...(message.content.trim()
+                ? [{ type: 'text', text: message.content.trim() } satisfies RelayContentPart]
+                : []),
+              ...message.attachments.map(
+                (attachment) =>
+                  ({
+                    type: 'image_url',
+                    image_url: {
+                      url: attachment.relayUrl || attachment.uri,
+                    },
+                  }) satisfies RelayContentPart,
+              ),
+            ]
+          : message.content,
     }));
 
   return systemPrompt
@@ -84,7 +159,16 @@ async function requestFallbackCompletion(
   });
 
   if (!response.ok) {
-    throw new Error(`Relay request failed (${response.status})`);
+    const errorInfo = await readRelayError(response);
+    logRelayError('chat completion fallback failed', {
+      sessionId,
+      url: `${config.baseUrl}/v1/chat/completions`,
+      requestMessageCount: messages.length,
+      response: errorInfo,
+    });
+    throw new Error(
+      extractRelayErrorMessage(errorInfo) || `Relay request failed (${response.status})`,
+    );
   }
 
   const payload = (await response.json()) as {
@@ -98,10 +182,67 @@ async function requestFallbackCompletion(
   return payload.choices?.[0]?.message?.content || '';
 }
 
+async function uploadAttachment(
+  config: AgentConfig,
+  attachment: PendingImageAttachment,
+): Promise<ChatAttachment> {
+  const response = await fetch(`${config.baseUrl}/v1/uploads`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.bearerToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fileName: attachment.fileName || `image-${attachment.id}.jpg`,
+      contentType: attachment.mimeType || 'image/jpeg',
+      base64: attachment.base64,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorInfo = await readRelayError(response);
+    logRelayError('attachment upload failed', {
+      attachment: {
+        id: attachment.id,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        localUri: attachment.localUri,
+        base64Length: attachment.base64.length,
+      },
+      url: `${config.baseUrl}/v1/uploads`,
+      response: errorInfo,
+    });
+    throw new Error(
+      extractRelayErrorMessage(errorInfo) || `Upload failed (${response.status})`,
+    );
+  }
+
+  const payload = (await response.json()) as {
+    id?: string;
+    fileUrl?: string;
+    contentType?: string;
+  };
+
+  if (!payload.fileUrl || !payload.id) {
+    throw new Error('Upload did not return a usable file URL.');
+  }
+
+  return {
+    id: attachment.id,
+    type: 'image',
+    uri: `${config.baseUrl}/v1/uploads/${payload.id}/file`,
+    relayUrl: payload.fileUrl,
+    previewUri: attachment.localUri,
+    mimeType: payload.contentType || attachment.mimeType,
+    fileName: attachment.fileName,
+  };
+}
+
 export function useRelayChat(options: UseRelayChatOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>(options.initialMessages ?? []);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -175,42 +316,96 @@ export function useRelayChat(options: UseRelayChatOptions) {
     };
   }, [hasLoadedHistory, messages, options.sessionId]);
 
+  const addImageAttachment = useCallback(async () => {
+    if (isStreaming) {
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      throw new Error('Photo library permission is required to attach images.');
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.85,
+      base64: true,
+      selectionLimit: 4,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    const nextAttachments = result.assets
+      .filter((asset) => typeof asset.base64 === 'string' && asset.base64.length > 0)
+      .map<PendingImageAttachment>((asset) => ({
+        id: createId('attachment'),
+        type: 'image',
+        localUri: asset.uri,
+        mimeType: asset.mimeType || 'image/jpeg',
+        fileName: asset.fileName || asset.uri.split('/').pop() || 'image.jpg',
+        base64: asset.base64 as string,
+      }));
+
+    setPendingAttachments((current) => [...current, ...nextAttachments]);
+  }, [isStreaming]);
+
+  const removeAttachment = useCallback((attachmentId: string) => {
+    setPendingAttachments((current) =>
+      current.filter((attachment) => attachment.id !== attachmentId),
+    );
+  }, []);
+
   const sendMessage = useCallback(async () => {
     const trimmed = input.trim();
+    const hasAttachments = pendingAttachments.length > 0;
 
-    if (!trimmed || isStreaming) {
+    if ((!trimmed && !hasAttachments) || isStreaming) {
       return;
     }
 
     abortRef.current?.abort();
-
-    const userMessage: ChatMessage = {
-      id: createId('user'),
-      role: 'user',
-      content: trimmed,
-      createdAt: new Date().toISOString(),
-    };
-
-    const assistantId = createId('assistant');
-    const assistantMessage: ChatMessage = {
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      createdAt: new Date().toISOString(),
-      streaming: true,
-    };
-
-    const nextMessages = [...messages, userMessage];
-    const relayMessages = toRelayMessages(nextMessages, options.systemPrompt);
-
-    setInput('');
     setIsStreaming(true);
-    setMessages((current) => [...current, userMessage, assistantMessage]);
-
-    const abortController = new AbortController();
-    abortRef.current = abortController;
 
     try {
+      let uploadedAttachments: ChatAttachment[] = [];
+
+      if (hasAttachments) {
+        uploadedAttachments = await Promise.all(
+          pendingAttachments.map((attachment) => uploadAttachment(options.config, attachment)),
+        );
+      }
+
+      const userMessage: ChatMessage = {
+        id: createId('user'),
+        role: 'user',
+        content: trimmed,
+        attachments: uploadedAttachments,
+        createdAt: new Date().toISOString(),
+      };
+
+      const assistantId = createId('assistant');
+      const assistantMessage: ChatMessage = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        createdAt: new Date().toISOString(),
+        streaming: true,
+      };
+
+      const nextMessages = [...messages, userMessage];
+      const relayMessages = toRelayMessages(nextMessages, options.systemPrompt);
+
+      setInput('');
+      setPendingAttachments([]);
+      setMessages((current) => [...current, userMessage, assistantMessage]);
+
+      const abortController = new AbortController();
+      abortRef.current = abortController;
+
       const response = await fetch(`${options.config.baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -227,7 +422,17 @@ export function useRelayChat(options: UseRelayChatOptions) {
       });
 
       if (!response.ok) {
-        throw new Error(`Relay request failed (${response.status})`);
+        const errorInfo = await readRelayError(response);
+        logRelayError('chat completion streaming request failed', {
+          sessionId: options.sessionId,
+          url: `${options.config.baseUrl}/v1/chat/completions`,
+          requestMessageCount: relayMessages.length,
+          attachments: userMessage.attachments,
+          response: errorInfo,
+        });
+        throw new Error(
+          extractRelayErrorMessage(errorInfo) || `Relay request failed (${response.status})`,
+        );
       }
 
       if (!response.body) {
@@ -322,7 +527,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
         ),
       );
     } catch (error) {
-      if (abortController.signal.aborted) {
+      if (abortRef.current?.signal.aborted) {
         return;
       }
 
@@ -331,32 +536,45 @@ export function useRelayChat(options: UseRelayChatOptions) {
           ? error.message
           : 'Unable to reach the relay. Check your base URL and bearer token.';
 
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId
-            ? {
-                ...message,
-                content: errorMessage,
-                streaming: false,
-                error: true,
-              }
-            : message,
-        ),
-      );
-    } finally {
-      if (abortRef.current === abortController) {
-        abortRef.current = null;
-      }
+      setMessages((current) => {
+        if (current.some((message) => message.streaming)) {
+          return current.map((message) =>
+            message.streaming
+              ? {
+                  ...message,
+                  content: errorMessage,
+                  streaming: false,
+                  error: true,
+                }
+              : message,
+          );
+        }
 
+        return [
+          ...current,
+          {
+            id: createId('assistant-error'),
+            role: 'assistant',
+            content: errorMessage,
+            createdAt: new Date().toISOString(),
+            error: true,
+          },
+        ];
+      });
+    } finally {
+      abortRef.current = null;
       setIsStreaming(false);
     }
   }, [input, isStreaming, messages, options]);
 
   return {
+    addImageAttachment,
     hasLoadedHistory,
     input,
     isStreaming,
     messages,
+    pendingAttachments,
+    removeAttachment,
     sendMessage,
     setInput,
   };

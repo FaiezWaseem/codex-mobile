@@ -103,9 +103,13 @@ function HomeRoute({
       onOpenTasks={() => navigateTo(navigation, appRoutes.tasks())}
       onOpenSettings={() => navigateTo(navigation, appRoutes.settings())}
       input={chat.input}
+      pendingAttachments={chat.pendingAttachments}
+      bearerToken={config?.bearerToken || ''}
       isStreaming={chat.isStreaming}
       messages={chat.messages}
       onChangeInput={chat.setInput}
+      onAddAttachment={chat.addImageAttachment}
+      onRemoveAttachment={chat.removeAttachment}
       onSendMessage={chat.sendMessage}
     />
   );
@@ -161,9 +165,13 @@ function TaskDetailRoute({
       task={activeTask}
       onBack={() => navigation.goBack()}
       input={chat.input}
+      pendingAttachments={chat.pendingAttachments}
+      bearerToken={config?.bearerToken || ''}
       isStreaming={chat.isStreaming}
       messages={chat.messages}
       onChangeInput={chat.setInput}
+      onAddAttachment={chat.addImageAttachment}
+      onRemoveAttachment={chat.removeAttachment}
       onSendMessage={chat.sendMessage}
     />
   );

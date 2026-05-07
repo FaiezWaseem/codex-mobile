@@ -26,8 +26,11 @@ File path:
 - `GET /v1/docs`
 - `GET /v1/image/:jobId`
 - `GET /v1/image/:jobId/file`
+- `GET /v1/uploads/:uploadId`
+- `GET /v1/uploads/:uploadId/file`
 - `POST /v1/chat`
 - `POST /v1/image`
+- `POST /v1/uploads`
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `POST /v1/images/generations`
@@ -79,6 +82,57 @@ Possible statuses:
 - `completed`
 - `failed`
 
+When completed, the status payload also includes:
+
+- `filePath`
+- `fileName`
+- `contentType`
+
+## Uploads
+
+You can upload an image or document to the relay, get back a local `file://` URL, and then reuse that URL in later chat/image requests. Uploaded files are automatically deleted after 24 hours.
+
+Raw upload example:
+
+```bash
+curl -s -X POST http://127.0.0.1:9856/v1/uploads \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: image/png" \
+  -H "x-filename: input.png" \
+  --data-binary @./input.png
+```
+
+JSON base64 upload example:
+
+```bash
+curl -s -X POST http://127.0.0.1:9856/v1/uploads \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fileName": "input.png",
+    "contentType": "image/png",
+    "base64": "<base64-data>"
+  }'
+```
+
+The upload response includes:
+
+- `id`
+- `filePath`
+- `fileUrl`
+- `contentType`
+- `expiresAt`
+
+You can fetch metadata or the file itself later:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/uploads/<upload-id>
+
+curl -L -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/uploads/<upload-id>/file
+```
+
 ## Model switching
 
 Set `model` per request. Example values that worked on this relay:
@@ -127,6 +181,29 @@ curl -s -X POST http://127.0.0.1:9856/v1/chat/completions \
     ]
   }'
 ```
+
+Image input is also supported on the OpenAI-compatible routes. For remote URLs, use content parts like:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "What is in this image?" },
+        { "type": "image_url", "image_url": { "url": "https://example.com/test.png" } }
+      ]
+    }
+  ]
+}
+```
+
+For local files on this machine, you can also use `file:///abs/path/to/image.png` in the image URL field.
+
+Supported routes for image input:
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
 
 ## SSE streaming
 
