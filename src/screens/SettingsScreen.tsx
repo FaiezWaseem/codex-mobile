@@ -3,12 +3,15 @@ import BottomSheet, {
   BottomSheetScrollView,
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconButton, SettingsRow } from '../components';
 import type { AppTheme } from '../theme/tokens';
 import type { ThemeMode } from '../types';
+
+const USAGE_CACHE_KEY = 'codex.usage-cache';
 
 type UsageWindow = {
   usedPercent?: number;
@@ -159,11 +162,24 @@ export function SettingsScreen({
     [],
   );
 
-  const loadUsage = useCallback(async () => {
+  const loadUsage = useCallback(async (preferCache = false) => {
     if (!baseUrl.trim() || !bearerToken.trim()) {
       setUsage(null);
       setUsageError('Relay is not configured.');
       return;
+    }
+
+    if (preferCache) {
+      try {
+        const cached = await AsyncStorage.getItem(USAGE_CACHE_KEY);
+
+        if (cached) {
+          const parsed = JSON.parse(cached) as UsageResponse;
+          setUsage(parsed);
+        }
+      } catch {
+        // Ignore cache read issues and continue to live refresh.
+      }
     }
 
     setIsLoadingUsage(true);
@@ -182,6 +198,7 @@ export function SettingsScreen({
 
       const payload = (await response.json()) as UsageResponse;
       setUsage(payload);
+      await AsyncStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(payload));
     } catch (error) {
       setUsageError(
         error instanceof Error ? error.message : 'Unable to load Codex usage right now.',
@@ -192,7 +209,7 @@ export function SettingsScreen({
   }, [baseUrl, bearerToken]);
 
   useEffect(() => {
-    void loadUsage();
+    void loadUsage(true);
   }, [loadUsage]);
 
   const sessionsWithUsage = usage?.sessions?.filter((session) => session.lastTokenUsage?.total)

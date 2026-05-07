@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import type { AppTheme } from '../theme/tokens';
 import type { ChatMessage } from '../types';
@@ -10,7 +10,8 @@ type MarkdownBlock =
   | { type: 'bullet'; items: string[] }
   | { type: 'numbered'; items: string[] }
   | { type: 'blockquote'; lines: string[] }
-  | { type: 'code'; content: string; language?: string };
+  | { type: 'code'; content: string; language?: string }
+  | { type: 'image'; uri: string; alt?: string };
 
 type InlineToken =
   | { type: 'text'; content: string }
@@ -18,6 +19,10 @@ type InlineToken =
   | { type: 'emphasis'; content: string }
   | { type: 'inlineCode'; content: string }
   | { type: 'link'; content: string; href: string };
+
+function isImageUrl(value: string) {
+  return /^https?:\/\/\S+\.(png|jpe?g|gif|webp|bmp|svg)(\?\S*)?$/i.test(value);
+}
 
 function parseMarkdownBlocks(content: string): MarkdownBlock[] {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
@@ -54,6 +59,27 @@ function parseMarkdownBlocks(content: string): MarkdownBlock[] {
         content: codeLines.join('\n'),
         language,
       });
+      continue;
+    }
+
+    const markdownImageMatch = trimmed.match(/^!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)$/);
+
+    if (markdownImageMatch) {
+      blocks.push({
+        type: 'image',
+        alt: markdownImageMatch[1],
+        uri: markdownImageMatch[2],
+      });
+      index += 1;
+      continue;
+    }
+
+    if (isImageUrl(trimmed)) {
+      blocks.push({
+        type: 'image',
+        uri: trimmed,
+      });
+      index += 1;
       continue;
     }
 
@@ -237,6 +263,7 @@ function renderInline(
   content: string,
   color: string,
   onOpenLink: (href: string) => void | Promise<void>,
+  openedLinks: string[],
 ) {
   return parseInlineTokens(content).map((token, index) => {
     if (token.type === 'strong') {
@@ -267,10 +294,11 @@ function renderInline(
     }
 
     if (token.type === 'link') {
+      const linkColor = openedLinks.includes(token.href) ? '#2563EB' : color;
       return (
         <Text
           key={`link-${index}`}
-          style={[styles.content, styles.linkText, { color }]}
+          style={[styles.content, styles.linkText, { color: linkColor }]}
           onPress={() => void onOpenLink(token.href)}
         >
           {token.content}
@@ -291,6 +319,7 @@ function renderMarkdownBlocks(
   color: string,
   theme: AppTheme,
   onOpenLink: (href: string) => void | Promise<void>,
+  openedLinks: string[],
 ) {
   return blocks.map((block, index) => {
     if (block.type === 'heading') {
@@ -304,7 +333,7 @@ function renderMarkdownBlocks(
             { color },
           ]}
         >
-          {renderInline(block.content, color, onOpenLink)}
+          {renderInline(block.content, color, onOpenLink, openedLinks)}
         </Text>
       );
     }
@@ -312,7 +341,7 @@ function renderMarkdownBlocks(
     if (block.type === 'paragraph') {
       return (
         <Text key={`paragraph-${index}`} style={[styles.content, styles.blockSpacing, { color }]}>
-          {renderInline(block.lines.join('\n'), color, onOpenLink)}
+          {renderInline(block.lines.join('\n'), color, onOpenLink, openedLinks)}
         </Text>
       );
     }
@@ -328,7 +357,7 @@ function renderMarkdownBlocks(
           ]}
         >
           <Text style={[styles.content, styles.quoteText, { color }]}>
-            {renderInline(block.lines.join('\n'), color, onOpenLink)}
+            {renderInline(block.lines.join('\n'), color, onOpenLink, openedLinks)}
           </Text>
         </View>
       );
@@ -343,11 +372,32 @@ function renderMarkdownBlocks(
                 {block.type === 'bullet' ? '\u2022' : `${itemIndex + 1}.`}
               </Text>
               <Text style={[styles.content, styles.listContent, { color }]}>
-                {renderInline(item, color, onOpenLink)}
+                {renderInline(item, color, onOpenLink, openedLinks)}
               </Text>
             </View>
           ))}
         </View>
+      );
+    }
+
+    if (block.type === 'image') {
+      return (
+        <Pressable
+          key={`image-${index}`}
+          onPress={() => void onOpenLink(block.uri)}
+          style={styles.blockSpacing}
+        >
+          <Image
+            source={{ uri: block.uri }}
+            style={[styles.messageImage, { borderColor: theme.colors.border }]}
+            resizeMode="cover"
+          />
+          {block.alt ? (
+            <Text style={[styles.imageCaption, { color: theme.colors.textMuted }]}>
+              {block.alt}
+            </Text>
+          ) : null}
+        </Pressable>
       );
     }
 
@@ -399,6 +449,7 @@ export function ChatMessageBubble({
   const content = message.content || (message.streaming ? '...' : '');
   const markdownBlocks = parseMarkdownBlocks(content);
   const [copied, setCopied] = useState(false);
+  const [openedLinks, setOpenedLinks] = useState<string[]>([]);
   const timestamp = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
 
   useEffect(() => {
@@ -413,7 +464,7 @@ export function ChatMessageBubble({
     return () => clearTimeout(timeoutId);
   }, [copied]);
 
-async function handleCopy() {
+  async function handleCopy() {
     if (!content.trim()) {
       return;
     }
@@ -430,6 +481,7 @@ async function handleCopy() {
     }
 
     await Linking.openURL(href);
+    setOpenedLinks((current) => (current.includes(href) ? current : [...current, href]));
   }
 
   return (
@@ -451,7 +503,7 @@ async function handleCopy() {
           },
         ]}
       >
-        {renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink)}
+        {renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink, openedLinks)}
       </View>
       <View style={[styles.footerRow, { alignSelf: isUser ? 'flex-end' : 'flex-start' }]}>
         {timestamp ? (
@@ -557,6 +609,19 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     fontSize: 14,
     lineHeight: 21,
+  },
+  messageImage: {
+    width: 240,
+    maxWidth: '100%',
+    height: 180,
+    borderRadius: 18,
+    borderWidth: 1,
+    backgroundColor: '#00000010',
+  },
+  imageCaption: {
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 8,
   },
   footerRow: {
     flexDirection: 'row',

@@ -8,15 +8,17 @@ export function TaskRow({
   meta,
   updatedAt,
   onPress,
+  onLongPress,
 }: {
   theme: AppTheme;
   title: string;
   meta: string;
   updatedAt: string;
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.taskRow}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={240} style={styles.taskRow}>
       <View style={[styles.taskIcon, { backgroundColor: theme.colors.surfaceElevated }]}>
         <Ionicons name="code-slash-outline" size={24} color={theme.colors.text} />
       </View>

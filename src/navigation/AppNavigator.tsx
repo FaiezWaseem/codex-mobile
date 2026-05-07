@@ -113,12 +113,16 @@ function HomeRoute({
 
 function TasksRoute({
   navigation,
+  config,
   theme,
 }: RootScreenProps<'Tasks'> & {
+  config: AgentConfig | null;
   theme: AppTheme;
 }) {
   return (
     <TasksScreen
+      baseUrl={config?.baseUrl || ''}
+      bearerToken={config?.bearerToken || ''}
       theme={theme}
       onOpenTask={(taskId) => navigateTo(navigation, appRoutes.taskDetail(taskId))}
       onOpenHome={(sessionId) => navigateTo(navigation, appRoutes.home(sessionId))}
@@ -242,7 +246,7 @@ export function AppNavigator({
           {(props) => <HomeRoute {...props} theme={theme} config={config} />}
         </Stack.Screen>
         <Stack.Screen name={routeNames.tasks}>
-          {(props) => <TasksRoute {...props} theme={theme} />}
+          {(props) => <TasksRoute {...props} theme={theme} config={config} />}
         </Stack.Screen>
         <Stack.Screen name={routeNames.taskDetail}>
           {(props) => <TaskDetailRoute {...props} theme={theme} config={config} />}
