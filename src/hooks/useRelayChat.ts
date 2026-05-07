@@ -6,7 +6,6 @@ type UseRelayChatOptions = {
   assistantName?: string;
   config: AgentConfig;
   initialMessages?: ChatMessage[];
-  reloadKey?: number;
   sessionId: string;
   systemPrompt?: string;
 };
@@ -154,7 +153,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
     return () => {
       cancelled = true;
     };
-  }, [options.initialMessages, options.reloadKey, options.sessionId]);
+  }, [options.initialMessages, options.sessionId]);
 
   useEffect(() => {
     if (!hasLoadedHistory) {

@@ -27,7 +27,7 @@ export function TasksScreen({
 }: {
   theme: AppTheme;
   onOpenTask: (taskId: string) => void;
-  onOpenHome: () => void;
+  onOpenHome: (sessionId?: string) => void;
   onStartNewChat: () => void | Promise<void>;
   onOpenSettings: () => void;
 }) {
@@ -133,8 +133,8 @@ export function TasksScreen({
               meta={task.category}
               updatedAt={task.updatedAt}
               onPress={() =>
-                task.sessionId === 'home-chat'
-                  ? onOpenHome()
+                !task.sessionId.startsWith('task-')
+                  ? onOpenHome(task.sessionId)
                   : onOpenTask(task.sessionId.replace(/^task-/, ''))
               }
             />

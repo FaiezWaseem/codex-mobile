@@ -103,11 +103,6 @@ export async function saveChatMessages(sessionId: string, messages: ChatMessage[
   }
 }
 
-export async function clearChatSession(sessionId: string) {
-  const db = await getDatabase();
-  await db.runAsync('DELETE FROM chat_messages WHERE session_id = ?', sessionId);
-}
-
 function normalizeSessionTitle(sessionId: string, messages: ChatMessage[]) {
   const firstUserMessage = messages.find(
     (message) => message.role === 'user' && message.content.trim().length > 0,
@@ -172,7 +167,7 @@ export async function listTaskSessions(): Promise<ChatSessionSummary[]> {
         sessionId: row.session_id,
         title: normalizeSessionTitle(row.session_id, messages),
         updatedAt: formatSessionTimestamp(row.updated_at),
-        category: row.session_id === 'home-chat' ? 'Home chat' : 'Task thread',
+        category: row.session_id.startsWith('task-') ? 'Task thread' : 'Home chat',
       };
     }),
   );
