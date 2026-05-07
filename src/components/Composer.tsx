@@ -9,6 +9,9 @@ export function Composer({
   value,
   onChangeText,
   attachments,
+  availableModels,
+  selectedModel,
+  onSelectModel,
   onAddAttachment,
   onRemoveAttachment,
   onSend,
@@ -19,6 +22,9 @@ export function Composer({
   value: string;
   onChangeText: (value: string) => void;
   attachments?: PendingImageAttachment[];
+  availableModels?: readonly string[];
+  selectedModel?: string;
+  onSelectModel?: (model: string) => void;
   onAddAttachment?: () => void | Promise<void>;
   onRemoveAttachment?: (attachmentId: string) => void;
   onSend: () => void;
@@ -46,6 +52,39 @@ export function Composer({
         },
       ]}
     >
+      {availableModels && availableModels.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.modelStrip}
+        >
+          {availableModels.map((model) => {
+            const selected = model === selectedModel;
+            return (
+              <Pressable
+                key={model}
+                onPress={() => onSelectModel?.(model)}
+                style={[
+                  styles.modelChip,
+                  {
+                    backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surface,
+                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modelChipText,
+                    { color: selected ? theme.colors.primary : theme.colors.textMuted },
+                  ]}
+                >
+                  {model}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
       {attachments && attachments.length > 0 ? (
         <ScrollView
           horizontal
@@ -129,6 +168,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
+  },
+  modelStrip: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  modelChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  modelChipText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   attachmentStrip: {
     gap: 10,

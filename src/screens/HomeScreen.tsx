@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CapabilityChip, ChatMessageBubble, Composer, IconButton } from '../components';
 import { capabilities, profile } from '../data/mock';
+import { AVAILABLE_MODELS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
 import type { ChatMessage } from '../types';
 
@@ -25,9 +26,11 @@ export function HomeScreen({
   input,
   pendingAttachments,
   bearerToken,
+  selectedModel,
   isStreaming,
   messages,
   onChangeInput,
+  onSelectModel,
   onAddAttachment,
   onRemoveAttachment,
   onSendMessage,
@@ -38,9 +41,11 @@ export function HomeScreen({
   input: string;
   pendingAttachments: Parameters<typeof Composer>[0]['attachments'];
   bearerToken: string;
+  selectedModel: string;
   isStreaming: boolean;
   messages: ChatMessage[];
   onChangeInput: (value: string) => void;
+  onSelectModel: (model: string) => void;
   onAddAttachment: () => void | Promise<void>;
   onRemoveAttachment: (attachmentId: string) => void;
   onSendMessage: () => void;
@@ -147,6 +152,9 @@ export function HomeScreen({
           value={input}
           onChangeText={onChangeInput}
           attachments={pendingAttachments}
+          availableModels={AVAILABLE_MODELS}
+          selectedModel={selectedModel}
+          onSelectModel={onSelectModel}
           onAddAttachment={onAddAttachment}
           onRemoveAttachment={onRemoveAttachment}
           onSend={onSendMessage}
@@ -174,7 +182,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 128,
+    paddingTop: 104,
     paddingBottom: 280,
   },
   fixedHeader: {
@@ -190,11 +198,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 22,
-    paddingTop: 56,
-    paddingBottom: 14,
+    paddingTop: 44,
+    paddingBottom: 10,
   },
   ghostButton: {
-    width: 52,
+    width: 44,
     alignItems: 'flex-end',
   },
   hero: {

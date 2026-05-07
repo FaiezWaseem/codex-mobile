@@ -452,6 +452,7 @@ export function ChatMessageBubble({
   const markdownBlocks = parseMarkdownBlocks(content);
   const [copied, setCopied] = useState(false);
   const [openedLinks, setOpenedLinks] = useState<string[]>([]);
+  const [failedPreviewIds, setFailedPreviewIds] = useState<string[]>([]);
   const timestamp = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
 
   useEffect(() => {
@@ -511,15 +512,28 @@ export function ChatMessageBubble({
             onPress={() => void handleOpenLink(attachment.uri)}
             style={styles.blockSpacing}
           >
+            {(() => {
+              const usePreview = Boolean(
+                attachment.previewUri && !failedPreviewIds.includes(attachment.id),
+              );
+
+              return (
             <Image
               source={{
-                uri: attachment.previewUri || attachment.uri,
+                uri: usePreview ? attachment.previewUri : attachment.uri,
                 headers:
-                  imageAuthToken && !attachment.previewUri
+                  imageAuthToken && !usePreview
                     ? {
                         Authorization: `Bearer ${imageAuthToken}`,
                       }
                     : undefined,
+              }}
+              onError={() => {
+                if (attachment.previewUri) {
+                  setFailedPreviewIds((current) =>
+                    current.includes(attachment.id) ? current : [...current, attachment.id],
+                  );
+                }
               }}
               style={[
                 styles.messageImage,
@@ -529,6 +543,8 @@ export function ChatMessageBubble({
               ]}
               resizeMode="cover"
             />
+              );
+            })()}
           </Pressable>
         ))}
         {renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink, openedLinks)}

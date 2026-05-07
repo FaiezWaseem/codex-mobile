@@ -1,20 +1,26 @@
 # Codex Mobile App
 
-Codex is an Expo React Native mobile app prototype inspired by the attached reference UI.  
-Phase 1 focuses on polished interface work with mock data. Phase 2 is intended for backend integration.
+Codex is an Expo React Native mobile app for chatting with a relay-backed Codex assistant on mobile.
 
-## Current scope
+The app has moved beyond a UI-only prototype. It now includes live relay chat, persisted sessions, streaming responses, image attachments, model switching, local chat history, and a richer mobile chat experience.
 
-This project currently includes:
+## Current progress
 
-- Home assistant screen
-- Tasks list screen
-- Task detail screen
-- Settings bottom sheet
+What is working today:
+
+- Relay-backed chat using the configured base URL and bearer token
+- Streaming chat responses via the OpenAI SDK client
+- Home chat plus saved multi-session chat threads
+- Task list with saved thread history
+- Delete chat flow with relay session cleanup
+- Image attachment picking and upload through the relay
+- Image rendering in chat bubbles
+- Markdown-style chat bubble rendering
+- Copy-to-clipboard and timestamps on messages
+- In-chat model switching
+- Cached Codex usage panel in settings
 - Light and dark theme support
-- React Navigation native stack setup
-- `@gorhom/bottom-sheet` integration for settings
-- Mock data for profile, capabilities, and tasks
+- Branded splash screen
 
 ## Tech stack
 
@@ -25,76 +31,127 @@ This project currently includes:
 - Gorhom Bottom Sheet
 - React Native Reanimated
 - React Native Gesture Handler
+- Expo SQLite
+- Expo Image Picker
+- Expo Clipboard
+- OpenAI JavaScript SDK
+
+## Key features
+
+### Relay chat
+
+- Configured through a relay `baseUrl` and `bearerToken`
+- Uses `x-session-id` to maintain conversation continuity
+- Streams assistant replies in chat
+- Supports image input on chat turns
+
+### Chat sessions
+
+- Default home chat session
+- New chat creates a distinct session id
+- Session history is stored locally in SQLite
+- Saved chats appear in the task list
+- Long-press a saved chat to delete it
+
+### Message experience
+
+- Assistant bubbles render markdown-like formatting
+- Links are tappable
+- Images can render inline
+- Each message shows a timestamp
+- Each message can be copied to clipboard
+
+### Attachments
+
+- Pick images from the media library
+- Upload images to the relay through `/v1/uploads`
+- Send uploaded images back to the chat API as image content parts
+- Persist attachment metadata with chat history
+
+### Model switching
+
+Available in the composer:
+
+- `gpt-5.5`
+- `gpt-5.4`
+- `gpt-5.4-mini`
+- `gpt-5.3-codex`
+- `gpt-5.2`
+
+The selected model is persisted with the app config and reused on future requests.
+
+### Settings and usage
+
+- Theme switching: `system`, `light`, `dark`
+- Agent configuration management
+- Cached usage snapshot from `/v1/usage`
+- Refreshes from live relay data after loading cache
 
 ## Project structure
 
 ```text
 src/
-  components/      Reusable UI components
-  data/            Mock data for Phase 1
-  navigation/      Navigation types, routes, theme, navigator
+  components/      Reusable UI building blocks
+  config/          App config persistence
+  data/            Mock task/profile data still used in some surfaces
+  hooks/           Relay chat logic and chat state
+  navigation/      App navigator, routes, and nav theme
   screens/         App screens
+  storage/         SQLite persistence for chat sessions
   theme/           Theme provider and design tokens
-  AppShell.tsx     App-level theme to navigator bridge
+  AppShell.tsx     App-level theme/config bridge
   types.ts         Shared app types
+docs/
+  codex.md         Relay integration notes and API examples
 ```
 
-## Screens
+## Main screens
 
-### 1. Home
+### Home
 
-- Greeting hero
-- Suggested capability chips
-- Fixed header
-- Fixed bottom composer
+- Main assistant chat screen
+- Saved-session aware
+- Attachment picker
+- Model picker in composer
 
-### 2. Tasks
+### Tasks
 
-- Task history list
-- Avatar shortcut to settings
-- Floating action button back to the chat flow
+- Saved chat thread list
+- Pull to refresh
+- FAB for a fresh chat
+- Long-press delete confirmation bottom sheet
 
-### 3. Task detail
+### Task detail
 
-- Fixed header
-- Prompt summary card
-- Task result summary
-- Fixed bottom composer
+- Task summary UI plus relay-backed chat thread
+- Uses its own task session id
 
-### 4. Settings
+### Settings
 
-- Built with `@gorhom/bottom-sheet`
-- Theme mode switcher: `system`, `light`, `dark`
-- Safe-area aware bottom padding for edge-to-edge Android devices
+- Bottom sheet presentation
+- Cached Codex usage card
+- Theme switcher
+- Agent config entry point
 
-## Navigation
+### Splash
 
-Navigation lives in [src/navigation](/abs/c:/Users/Faiez/development/test/codex/src/navigation).
+- Branded startup experience shown while config boots
 
-Key files:
+## Configuration
 
-- [src/navigation/AppNavigator.tsx](/abs/c:/Users/Faiez/development/test/codex/src/navigation/AppNavigator.tsx)
-- [src/navigation/types.ts](/abs/c:/Users/Faiez/development/test/codex/src/navigation/types.ts)
-- [src/navigation/routes.ts](/abs/c:/Users/Faiez/development/test/codex/src/navigation/routes.ts)
-- [src/navigation/navigationTheme.ts](/abs/c:/Users/Faiez/development/test/codex/src/navigation/navigationTheme.ts)
+The app expects:
 
-The app uses a native stack with these routes:
+- Relay base URL
+- Relay bearer token
 
-- `Home`
-- `Tasks`
-- `TaskDetail`
-- `Settings`
+These are saved locally with AsyncStorage.
 
-## Theme system
+The app normalizes config by:
 
-Theme tokens live in [src/theme/tokens.ts](/abs/c:/Users/Faiez/development/test/codex/src/theme/tokens.ts).  
-Theme state is handled by [src/theme/ThemeProvider.tsx](/abs/c:/Users/Faiez/development/test/codex/src/theme/ThemeProvider.tsx).
-
-Supported modes:
-
-- `system`
-- `light`
-- `dark`
+- trimming the base URL
+- removing trailing slashes
+- trimming the bearer token
+- defaulting the model to `gpt-5.4-mini`
 
 ## Getting started
 
@@ -118,52 +175,43 @@ npm run ios
 npm run web
 ```
 
-## Android notes
+## Useful commands
 
-This app uses Reanimated, Gesture Handler, and Gorhom Bottom Sheet.  
-For Expo SDK 54, compatible versions matter.
-
-If Android throws runtime errors after dependency changes:
-
-1. Stop Metro completely.
-2. Run:
-
-```bash
-npx expo start --clear
-```
-
-3. Reopen the app.
-
-If you are using a development build, also uninstall the app from the device/emulator and rebuild it.
-
-## Verification
-
-Type-check the app with:
+Type-check the app:
 
 ```bash
 npx tsc --noEmit
 ```
 
-## Phase 2 direction
+If Metro gets confused after dependency changes:
 
-Planned backend integration areas:
-
-- Authentication and profile
-- Conversations and messages
-- Tasks and task runs
-- Preferences and connectors
-
-See [docs/phase-plan.md](/abs/c:/Users/Faiez/development/test/codex/docs/phase-plan.md) for the current breakdown.
+```bash
+npx expo start --clear
+```
 
 ## Useful files
 
 - [App.tsx](/abs/c:/Users/Faiez/development/test/codex/App.tsx)
 - [src/AppShell.tsx](/abs/c:/Users/Faiez/development/test/codex/src/AppShell.tsx)
+- [src/navigation/AppNavigator.tsx](/abs/c:/Users/Faiez/development/test/codex/src/navigation/AppNavigator.tsx)
+- [src/hooks/useRelayChat.ts](/abs/c:/Users/Faiez/development/test/codex/src/hooks/useRelayChat.ts)
 - [src/screens/HomeScreen.tsx](/abs/c:/Users/Faiez/development/test/codex/src/screens/HomeScreen.tsx)
 - [src/screens/TasksScreen.tsx](/abs/c:/Users/Faiez/development/test/codex/src/screens/TasksScreen.tsx)
 - [src/screens/TaskDetailScreen.tsx](/abs/c:/Users/Faiez/development/test/codex/src/screens/TaskDetailScreen.tsx)
 - [src/screens/SettingsScreen.tsx](/abs/c:/Users/Faiez/development/test/codex/src/screens/SettingsScreen.tsx)
+- [src/screens/SplashScreen.tsx](/abs/c:/Users/Faiez/development/test/codex/src/screens/SplashScreen.tsx)
+- [src/components/ChatMessageBubble.tsx](/abs/c:/Users/Faiez/development/test/codex/src/components/ChatMessageBubble.tsx)
+- [src/components/Composer.tsx](/abs/c:/Users/Faiez/development/test/codex/src/components/Composer.tsx)
+- [src/storage/chatDb.ts](/abs/c:/Users/Faiez/development/test/codex/src/storage/chatDb.ts)
+- [docs/codex.md](/abs/c:/Users/Faiez/development/test/codex/docs/codex.md)
 
-## Status
+## Current status
 
-This repo is currently a UI-first prototype with mock data and production-style navigation/theme foundations.
+This repo is now a working mobile relay client with live chat behavior and persisted conversation UX, not just a static prototype.
+
+There is still room to harden and polish:
+
+- better message rendering depth
+- richer attachment states and upload progress
+- improved mobile image auth/render edge cases
+- more task data coming from backend instead of mock data

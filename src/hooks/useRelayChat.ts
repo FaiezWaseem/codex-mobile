@@ -1,4 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
+import { fetch as expoFetch } from 'expo/fetch';
+import OpenAI from 'openai/index';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadChatMessages, saveChatMessages } from '../storage/chatDb';
 import type { AgentConfig, ChatAttachment, ChatMessage } from '../types';
@@ -20,6 +22,14 @@ export type PendingImageAttachment = {
   base64: string;
 };
 
+export const AVAILABLE_MODELS = [
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.3-codex',
+  'gpt-5.2',
+] as const;
+
 type RelayContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
@@ -28,6 +38,8 @@ type RelayMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string | RelayContentPart[];
 };
+
+type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 type RelayErrorInfo = {
   status: number;
@@ -38,6 +50,18 @@ type RelayErrorInfo = {
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createOpenAIClient(config: AgentConfig, sessionId: string) {
+  return new OpenAI({
+    apiKey: config.bearerToken,
+    baseURL: config.baseUrl+"/v1",
+    dangerouslyAllowBrowser: true,
+    fetch: expoFetch as typeof fetch,
+    defaultHeaders: {
+      'x-session-id': sessionId,
+    },
+  });
 }
 
 async function readRelayError(response: Response): Promise<RelayErrorInfo> {
@@ -144,22 +168,23 @@ async function requestFallbackCompletion(
   sessionId: string,
   messages: RelayMessage[],
 ) {
-  const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.bearerToken}`,
-      'Content-Type': 'application/json',
-      'x-session-id': sessionId,
-    },
-    body: JSON.stringify({
-      model: config.model || 'gpt-5.4-mini',
-      messages,
-      stream: false,
-    }),
-  });
+  const client = createOpenAIClient(config, sessionId);
 
-  if (!response.ok) {
-    const errorInfo = await readRelayError(response);
+  try {
+    const response = await client.chat.completions.create({
+      model: config.model || 'gpt-5.4-mini',
+      messages: messages as OpenAIMessage[],
+      stream: false,
+    });
+
+    return response.choices[0]?.message?.content || '';
+  } catch (error) {
+    const errorInfo = {
+      status: 0,
+      statusText: 'SDK request failed',
+      bodyText: error instanceof Error ? error.message : 'Unknown SDK error',
+      bodyJson: undefined,
+    };
     logRelayError('chat completion fallback failed', {
       sessionId,
       url: `${config.baseUrl}/v1/chat/completions`,
@@ -167,19 +192,9 @@ async function requestFallbackCompletion(
       response: errorInfo,
     });
     throw new Error(
-      extractRelayErrorMessage(errorInfo) || `Relay request failed (${response.status})`,
+      extractRelayErrorMessage(errorInfo) || 'Relay request failed.',
     );
   }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  return payload.choices?.[0]?.message?.content || '';
 }
 
 async function uploadAttachment(
@@ -219,6 +234,7 @@ async function uploadAttachment(
 
   const payload = (await response.json()) as {
     id?: string;
+    downloadUrl?: string;
     fileUrl?: string;
     contentType?: string;
   };
@@ -230,7 +246,7 @@ async function uploadAttachment(
   return {
     id: attachment.id,
     type: 'image',
-    uri: `${config.baseUrl}/v1/uploads/${payload.id}/file`,
+    uri: payload.downloadUrl || `${config.baseUrl}/v1/uploads/${payload.id}/file`,
     relayUrl: payload.fileUrl,
     previewUri: attachment.localUri,
     mimeType: payload.contentType || attachment.mimeType,
@@ -405,114 +421,41 @@ export function useRelayChat(options: UseRelayChatOptions) {
 
       const abortController = new AbortController();
       abortRef.current = abortController;
+      const client = createOpenAIClient(options.config, options.sessionId);
 
-      const response = await fetch(`${options.config.baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${options.config.bearerToken}`,
-          'Content-Type': 'application/json',
-          'x-session-id': options.sessionId,
-        },
-        body: JSON.stringify({
+      const stream = await client.chat.completions.create(
+        {
           model: options.config.model || 'gpt-5.4-mini',
-          messages: relayMessages,
+          messages: relayMessages as OpenAIMessage[],
           stream: true,
-        }),
-        signal: abortController.signal,
-      });
+        },
+        {
+          signal: abortController.signal,
+        },
+      );
 
-      if (!response.ok) {
-        const errorInfo = await readRelayError(response);
-        logRelayError('chat completion streaming request failed', {
-          sessionId: options.sessionId,
-          url: `${options.config.baseUrl}/v1/chat/completions`,
-          requestMessageCount: relayMessages.length,
-          attachments: userMessage.attachments,
-          response: errorInfo,
-        });
-        throw new Error(
-          extractRelayErrorMessage(errorInfo) || `Relay request failed (${response.status})`,
-        );
-      }
+      let aggregated = '';
 
-      if (!response.body) {
-        const fallbackContent = await requestFallbackCompletion(
-          options.config,
-          options.sessionId,
-          relayMessages,
-        );
+      for await (const chunk of stream) {
+        const delta = extractStreamDelta(chunk);
+
+        if (!delta) {
+          continue;
+        }
+
+        aggregated += delta;
 
         setMessages((current) =>
           current.map((message) =>
             message.id === assistantId
               ? {
                   ...message,
-                  content: fallbackContent,
-                  streaming: false,
+                  content: aggregated,
+                  streaming: true,
                 }
               : message,
           ),
         );
-
-        setIsStreaming(false);
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let aggregated = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split('\n\n');
-        buffer = events.pop() ?? '';
-
-        for (const event of events) {
-          const lines = event
-            .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean);
-
-          for (const line of lines) {
-            if (!line.startsWith('data:')) {
-              continue;
-            }
-
-            const payload = line.slice(5).trim();
-
-            if (!payload || payload === '[DONE]') {
-              continue;
-            }
-
-            const parsed = JSON.parse(payload) as unknown;
-            const delta = extractStreamDelta(parsed);
-
-            if (!delta) {
-              continue;
-            }
-
-            aggregated += delta;
-
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: aggregated,
-                      streaming: true,
-                    }
-                  : message,
-              ),
-            );
-          }
-        }
       }
 
       setMessages((current) =>
@@ -529,6 +472,20 @@ export function useRelayChat(options: UseRelayChatOptions) {
     } catch (error) {
       if (abortRef.current?.signal.aborted) {
         return;
+      }
+
+      if (error instanceof OpenAI.APIError) {
+        logRelayError('chat completion streaming request failed', {
+          sessionId: options.sessionId,
+          url: `${options.config.baseUrl}/v1/chat/completions`,
+          requestMessageCount: messages.length + 1,
+          response: {
+            status: error.status ?? 0,
+            statusText: error.name,
+            bodyText: error.message,
+            bodyJson: error.error,
+          },
+        });
       }
 
       const errorMessage =

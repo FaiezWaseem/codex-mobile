@@ -1,12 +1,13 @@
 import { NavigationContainer, type NavigationProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { ConfigScreen } from '../screens/ConfigScreen';
 import { useMemo } from 'react';
 import { useRelayChat } from '../hooks/useRelayChat';
 import { tasks } from '../data/mock';
 import { HomeScreen } from '../screens/HomeScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { SplashScreen } from '../screens/SplashScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
 import { TasksScreen } from '../screens/TasksScreen';
 import type { AgentConfig, ThemeMode } from '../types';
@@ -34,17 +35,6 @@ function safeGoBack(navigation: NavigationProp<RootStackParamList>) {
   }
 
   navigateTo(navigation, appRoutes.home());
-}
-
-function LoadingRoute({ theme }: { theme: AppTheme }) {
-  return (
-    <View style={[styles.loadingPage, { backgroundColor: theme.colors.background }]}>
-      <ActivityIndicator color={theme.colors.primary} />
-      <Text style={[styles.loadingText, { color: theme.colors.textMuted }]}>
-        Loading configuration...
-      </Text>
-    </View>
-  );
 }
 
 function ConfigRoute({
@@ -86,9 +76,10 @@ function HomeRoute({
   navigation,
   route,
   config,
+  saveConfig,
   theme,
 }: RootScreenProps<'Home'> &
-  Pick<NavigatorProps, 'theme' | 'config'>) {
+  Pick<NavigatorProps, 'theme' | 'config' | 'saveConfig'>) {
   const sessionId = route.params?.sessionId ?? 'home-chat';
   const chat = useRelayChat({
     assistantName: 'Codex',
@@ -105,9 +96,11 @@ function HomeRoute({
       input={chat.input}
       pendingAttachments={chat.pendingAttachments}
       bearerToken={config?.bearerToken || ''}
+      selectedModel={config?.model || 'gpt-5.4-mini'}
       isStreaming={chat.isStreaming}
       messages={chat.messages}
       onChangeInput={chat.setInput}
+      onSelectModel={(model) => void saveConfig({ ...config!, model })}
       onAddAttachment={chat.addImageAttachment}
       onRemoveAttachment={chat.removeAttachment}
       onSendMessage={chat.sendMessage}
@@ -140,9 +133,10 @@ function TaskDetailRoute({
   navigation,
   route,
   config,
+  saveConfig,
   theme,
 }: RootScreenProps<'TaskDetail'> &
-  Pick<NavigatorProps, 'theme' | 'config'>) {
+  Pick<NavigatorProps, 'theme' | 'config' | 'saveConfig'>) {
   const activeTask = tasks.find((item) => item.id === route.params.taskId) ?? tasks[0];
   const chat = useRelayChat({
     assistantName: 'Codex',
@@ -167,9 +161,11 @@ function TaskDetailRoute({
       input={chat.input}
       pendingAttachments={chat.pendingAttachments}
       bearerToken={config?.bearerToken || ''}
+      selectedModel={config?.model || 'gpt-5.4-mini'}
       isStreaming={chat.isStreaming}
       messages={chat.messages}
       onChangeInput={chat.setInput}
+      onSelectModel={(model) => void saveConfig({ ...config!, model })}
       onAddAttachment={chat.addImageAttachment}
       onRemoveAttachment={chat.removeAttachment}
       onSendMessage={chat.sendMessage}
@@ -210,7 +206,7 @@ export function AppNavigator({
   const navigationTheme = useMemo(() => createNavigationTheme(theme), [theme]);
 
   if (!isReady) {
-    return <LoadingRoute theme={theme} />;
+    return <SplashScreen theme={theme} />;
   }
 
   if (!hasConfig) {
@@ -251,13 +247,22 @@ export function AppNavigator({
           )}
         </Stack.Screen>
         <Stack.Screen name={routeNames.home}>
-          {(props) => <HomeRoute {...props} theme={theme} config={config} />}
+          {(props) => (
+            <HomeRoute {...props} theme={theme} config={config} saveConfig={saveConfig} />
+          )}
         </Stack.Screen>
         <Stack.Screen name={routeNames.tasks}>
           {(props) => <TasksRoute {...props} theme={theme} config={config} />}
         </Stack.Screen>
         <Stack.Screen name={routeNames.taskDetail}>
-          {(props) => <TaskDetailRoute {...props} theme={theme} config={config} />}
+          {(props) => (
+            <TaskDetailRoute
+              {...props}
+              theme={theme}
+              config={config}
+              saveConfig={saveConfig}
+            />
+          )}
         </Stack.Screen>
         <Stack.Screen
           name={routeNames.settings}
@@ -282,14 +287,4 @@ export function AppNavigator({
   );
 }
 
-const styles = StyleSheet.create({
-  loadingPage: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-  },
-});
+const styles = StyleSheet.create({});

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatMessageBubble, Composer, IconButton } from '../components';
+import { AVAILABLE_MODELS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
 import type { ChatMessage, Task } from '../types';
 
@@ -24,9 +25,11 @@ export function TaskDetailScreen({
   input,
   pendingAttachments,
   bearerToken,
+  selectedModel,
   isStreaming,
   messages,
   onChangeInput,
+  onSelectModel,
   onAddAttachment,
   onRemoveAttachment,
   onSendMessage,
@@ -37,9 +40,11 @@ export function TaskDetailScreen({
   input: string;
   pendingAttachments: Parameters<typeof Composer>[0]['attachments'];
   bearerToken: string;
+  selectedModel: string;
   isStreaming: boolean;
   messages: ChatMessage[];
   onChangeInput: (value: string) => void;
+  onSelectModel: (model: string) => void;
   onAddAttachment: () => void | Promise<void>;
   onRemoveAttachment: (attachmentId: string) => void;
   onSendMessage: () => void;
@@ -174,6 +179,9 @@ export function TaskDetailScreen({
           value={input}
           onChangeText={onChangeInput}
           attachments={pendingAttachments}
+          availableModels={AVAILABLE_MODELS}
+          selectedModel={selectedModel}
+          onSelectModel={onSelectModel}
           onAddAttachment={onAddAttachment}
           onRemoveAttachment={onRemoveAttachment}
           onSend={onSendMessage}
@@ -192,7 +200,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 124,
+    paddingTop: 100,
     paddingBottom: 220,
   },
   fixedHeader: {
@@ -204,9 +212,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   header: {
-    paddingTop: 56,
+    paddingTop: 44,
     paddingHorizontal: 22,
-    paddingBottom: 14,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -215,21 +223,21 @@ const styles = StyleSheet.create({
     marginLeft: 14,
   },
   title: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: '500',
   },
   subtitle: {
-    fontSize: 16,
-    marginTop: 4,
+    fontSize: 14,
+    marginTop: 2,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    borderRadius: 20,
+    gap: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginLeft: 10,
   },
   promptCard: {
