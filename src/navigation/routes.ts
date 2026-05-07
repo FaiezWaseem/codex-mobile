@@ -15,7 +15,8 @@ type RouteTuple<T extends keyof RootStackParamList> = RootStackParamList[T] exte
 
 export const appRoutes = {
   config: (required = false): RouteTuple<'Config'> => [routeNames.config, { required }],
-  home: (): RouteTuple<'Home'> => [routeNames.home],
+  home: (resetToken?: number): RouteTuple<'Home'> =>
+    [routeNames.home, resetToken === undefined ? undefined : { resetToken }],
   tasks: (): RouteTuple<'Tasks'> => [routeNames.tasks],
   taskDetail: (taskId: string): RouteTuple<'TaskDetail'> => [
     routeNames.taskDetail,

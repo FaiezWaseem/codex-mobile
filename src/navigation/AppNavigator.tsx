@@ -11,6 +11,7 @@ import { TaskDetailScreen } from '../screens/TaskDetailScreen';
 import { TasksScreen } from '../screens/TasksScreen';
 import type { AgentConfig, ThemeMode } from '../types';
 import type { AppTheme } from '../theme/tokens';
+import { clearChatSession } from '../storage/chatDb';
 import { createNavigationTheme } from './navigationTheme';
 import { appRoutes, navigateTo, routeNames } from './routes';
 import type { RootScreenProps, RootStackParamList } from './types';
@@ -84,6 +85,7 @@ function ConfigRoute({
 
 function HomeRoute({
   navigation,
+  route,
   config,
   theme,
 }: RootScreenProps<'Home'> &
@@ -91,6 +93,7 @@ function HomeRoute({
   const chat = useRelayChat({
     assistantName: 'Codex',
     config: config!,
+    reloadKey: route.params?.resetToken,
     sessionId: 'home-chat',
     systemPrompt: 'the mobile assistant home screen',
   });
@@ -120,6 +123,10 @@ function TasksRoute({
       theme={theme}
       onOpenTask={(taskId) => navigateTo(navigation, appRoutes.taskDetail(taskId))}
       onOpenHome={() => navigateTo(navigation, appRoutes.home())}
+      onStartNewChat={async () => {
+        await clearChatSession('home-chat');
+        navigateTo(navigation, appRoutes.home(Date.now()));
+      }}
       onOpenSettings={() => navigateTo(navigation, appRoutes.settings())}
     />
   );

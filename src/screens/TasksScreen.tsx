@@ -1,6 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TaskRow } from '../components';
@@ -13,23 +22,36 @@ export function TasksScreen({
   theme,
   onOpenTask,
   onOpenHome,
+  onStartNewChat,
   onOpenSettings,
 }: {
   theme: AppTheme;
   onOpenTask: (taskId: string) => void;
   onOpenHome: () => void;
+  onStartNewChat: () => void | Promise<void>;
   onOpenSettings: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const loadSessions = useCallback(async () => {
     const nextSessions = await listTaskSessions();
     setSessions(nextSessions);
     setHasLoaded(true);
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+
+    try {
+      await loadSessions();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadSessions]);
 
   useEffect(() => {
     void loadSessions();
@@ -61,6 +83,15 @@ export function TasksScreen({
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+            progressViewOffset={8}
+          />
+        }
       >
         <View style={styles.header}>
           <View>
@@ -91,6 +122,9 @@ export function TasksScreen({
         </View>
 
         <View style={styles.listWrap}>
+          <Text style={[styles.refreshHint, { color: theme.colors.textMuted }]}>
+            Pull down to refresh your saved threads
+          </Text>
           {filteredTasks.map((task) => (
             <TaskRow
               key={task.sessionId}
@@ -116,7 +150,7 @@ export function TasksScreen({
       </ScrollView>
 
       <Pressable
-        onPress={onOpenHome}
+        onPress={onStartNewChat}
         style={[
           styles.fab,
           {
@@ -178,6 +212,10 @@ const styles = StyleSheet.create({
   listWrap: {
     paddingHorizontal: 30,
     paddingTop: 28,
+  },
+  refreshHint: {
+    fontSize: 13,
+    marginBottom: 10,
   },
   emptyText: {
     fontSize: 14,

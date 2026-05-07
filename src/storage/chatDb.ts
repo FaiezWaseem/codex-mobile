@@ -103,6 +103,11 @@ export async function saveChatMessages(sessionId: string, messages: ChatMessage[
   }
 }
 
+export async function clearChatSession(sessionId: string) {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM chat_messages WHERE session_id = ?', sessionId);
+}
+
 function normalizeSessionTitle(sessionId: string, messages: ChatMessage[]) {
   const firstUserMessage = messages.find(
     (message) => message.role === 'user' && message.content.trim().length > 0,
