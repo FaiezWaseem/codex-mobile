@@ -24,8 +24,10 @@ File path:
 - `GET /v1/usage`
 - `GET /v1/models`
 - `GET /v1/docs`
+- `GET /v1/sessions/:sessionId/history`
 - `GET /v1/image/:jobId`
 - `GET /v1/image/:jobId/file`
+- `GET /v1/uploads`
 - `GET /v1/uploads/:uploadId`
 - `GET /v1/uploads/:uploadId/file`
 - `POST /v1/chat`
@@ -45,6 +47,13 @@ File path:
 - The relay stores thread continuity per session id.
 - For OpenAI-compatible routes, `x-session-id`, `sessionId`, `metadata.sessionId`, or `user` can drive reuse.
 - Default execution mode is `danger-full-access`, so the relay should not normally pause for approval prompts.
+
+Session message history is also stored locally in the relay database and can be fetched with:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/sessions/<session-id>/history
+```
 
 ## Async image jobs
 
@@ -120,12 +129,16 @@ The upload response includes:
 - `id`
 - `filePath`
 - `fileUrl`
+- `downloadUrl`
 - `contentType`
 - `expiresAt`
 
 You can fetch metadata or the file itself later:
 
 ```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/uploads
+
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:9856/v1/uploads/<upload-id>
 
