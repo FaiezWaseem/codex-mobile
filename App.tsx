@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AppConfigProvider } from './src/config/AppConfigProvider';
 import { AppShell } from './src/AppShell';
 import { ThemeProvider, useAppTheme } from './src/theme/ThemeProvider';
 
@@ -20,9 +21,11 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <ThemeProvider>
-        <SafeAreaProvider>
-          <Root />
-        </SafeAreaProvider>
+        <AppConfigProvider>
+          <SafeAreaProvider>
+            <Root />
+          </SafeAreaProvider>
+        </AppConfigProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

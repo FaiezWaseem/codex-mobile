@@ -1,13 +1,15 @@
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, type NavigationProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ConfigScreen } from '../screens/ConfigScreen';
 import { useMemo } from 'react';
-import { useMockChat } from '../hooks/useMockChat';
+import { useRelayChat } from '../hooks/useRelayChat';
 import { tasks } from '../data/mock';
 import { HomeScreen } from '../screens/HomeScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
 import { TasksScreen } from '../screens/TasksScreen';
-import type { ThemeMode } from '../types';
+import type { AgentConfig, ThemeMode } from '../types';
 import type { AppTheme } from '../theme/tokens';
 import { createNavigationTheme } from './navigationTheme';
 import { appRoutes, navigateTo, routeNames } from './routes';
@@ -16,19 +18,80 @@ import type { RootScreenProps, RootStackParamList } from './types';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 type NavigatorProps = {
+  config: AgentConfig | null;
+  hasConfig: boolean;
+  isReady: boolean;
+  saveConfig: (config: AgentConfig) => Promise<void>;
   theme: AppTheme;
   mode: ThemeMode;
   setMode: (mode: ThemeMode) => void;
 };
 
+function safeGoBack(navigation: NavigationProp<RootStackParamList>) {
+  if (navigation.canGoBack()) {
+    navigation.goBack();
+    return;
+  }
+
+  navigateTo(navigation, appRoutes.home());
+}
+
+function LoadingRoute({ theme }: { theme: AppTheme }) {
+  return (
+    <View style={[styles.loadingPage, { backgroundColor: theme.colors.background }]}>
+      <ActivityIndicator color={theme.colors.primary} />
+      <Text style={[styles.loadingText, { color: theme.colors.textMuted }]}>
+        Loading configuration...
+      </Text>
+    </View>
+  );
+}
+
+function ConfigRoute({
+  navigation,
+  route,
+  theme,
+  config,
+  saveConfig,
+}: RootScreenProps<'Config'> &
+  Pick<NavigatorProps, 'theme' | 'config' | 'saveConfig'>) {
+  const required = route.params?.required ?? false;
+
+  return (
+    <ConfigScreen
+      theme={theme}
+      required={required}
+      initialConfig={config}
+      onSave={async (draft) => {
+        await saveConfig(draft);
+
+        if (required) {
+          navigateTo(navigation, appRoutes.home());
+          return;
+        }
+
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+          return;
+        }
+
+        navigateTo(navigation, appRoutes.home());
+      }}
+      onClose={required ? undefined : () => safeGoBack(navigation)}
+    />
+  );
+}
+
 function HomeRoute({
   navigation,
+  config,
   theme,
-}: RootScreenProps<'Home'> & {
-  theme: AppTheme;
-}) {
-  const chat = useMockChat({
+}: RootScreenProps<'Home'> &
+  Pick<NavigatorProps, 'theme' | 'config'>) {
+  const chat = useRelayChat({
     assistantName: 'Codex',
+    config: config!,
+    sessionId: 'home-chat',
     systemPrompt: 'the mobile assistant home screen',
   });
 
@@ -65,14 +128,16 @@ function TasksRoute({
 function TaskDetailRoute({
   navigation,
   route,
+  config,
   theme,
-}: RootScreenProps<'TaskDetail'> & {
-  theme: AppTheme;
-}) {
+}: RootScreenProps<'TaskDetail'> &
+  Pick<NavigatorProps, 'theme' | 'config'>) {
   const activeTask = tasks.find((item) => item.id === route.params.taskId) ?? tasks[0];
-  const chat = useMockChat({
+  const chat = useRelayChat({
     assistantName: 'Codex',
+    config: config!,
     systemPrompt: activeTask.title,
+    sessionId: `task-${activeTask.id}`,
     initialMessages: [
       {
         id: `assistant-seed-${activeTask.id}`,
@@ -99,22 +164,60 @@ function TaskDetailRoute({
 
 function SettingsRoute({
   navigation,
+  config,
   theme,
   mode,
   setMode,
-}: RootScreenProps<'Settings'> & NavigatorProps) {
+}: RootScreenProps<'Settings'> &
+  Pick<NavigatorProps, 'config' | 'theme' | 'mode' | 'setMode'>) {
   return (
     <SettingsScreen
+      baseUrl={config?.baseUrl || ''}
       theme={theme}
       mode={mode}
+      onOpenConfig={() => navigateTo(navigation, appRoutes.config(false))}
       onSetMode={setMode}
-      onClose={() => navigation.goBack()}
+      onClose={() => safeGoBack(navigation)}
     />
   );
 }
 
-export function AppNavigator({ theme, mode, setMode }: NavigatorProps) {
+export function AppNavigator({
+  theme,
+  mode,
+  setMode,
+  config,
+  hasConfig,
+  isReady,
+  saveConfig,
+}: NavigatorProps) {
   const navigationTheme = useMemo(() => createNavigationTheme(theme), [theme]);
+
+  if (!isReady) {
+    return <LoadingRoute theme={theme} />;
+  }
+
+  if (!hasConfig) {
+    return (
+      <NavigationContainer theme={navigationTheme}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen
+            name={routeNames.config}
+            initialParams={{ required: true }}
+          >
+            {(props) => (
+              <ConfigRoute
+                {...props}
+                theme={theme}
+                config={config}
+                saveConfig={saveConfig}
+              />
+            )}
+          </Stack.Screen>
+        </Stack.Navigator>
+      </NavigationContainer>
+    );
+  }
 
   return (
     <NavigationContainer theme={navigationTheme}>
@@ -126,14 +229,19 @@ export function AppNavigator({ theme, mode, setMode }: NavigatorProps) {
           contentStyle: { backgroundColor: theme.colors.background },
         }}
       >
+        <Stack.Screen name={routeNames.config}>
+          {(props) => (
+            <ConfigRoute {...props} theme={theme} config={config} saveConfig={saveConfig} />
+          )}
+        </Stack.Screen>
         <Stack.Screen name={routeNames.home}>
-          {(props) => <HomeRoute {...props} theme={theme} />}
+          {(props) => <HomeRoute {...props} theme={theme} config={config} />}
         </Stack.Screen>
         <Stack.Screen name={routeNames.tasks}>
           {(props) => <TasksRoute {...props} theme={theme} />}
         </Stack.Screen>
         <Stack.Screen name={routeNames.taskDetail}>
-          {(props) => <TaskDetailRoute {...props} theme={theme} />}
+          {(props) => <TaskDetailRoute {...props} theme={theme} config={config} />}
         </Stack.Screen>
         <Stack.Screen
           name={routeNames.settings}
@@ -146,6 +254,7 @@ export function AppNavigator({ theme, mode, setMode }: NavigatorProps) {
           {(props) => (
             <SettingsRoute
               {...props}
+              config={config}
               theme={theme}
               mode={mode}
               setMode={setMode}
@@ -156,3 +265,15 @@ export function AppNavigator({ theme, mode, setMode }: NavigatorProps) {
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingPage: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+  },
+});

@@ -39,6 +39,7 @@ export function HomeScreen({
 }) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const isEmptyState = messages.length === 0;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -79,27 +80,29 @@ export function HomeScreen({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.hero}>
-          <Text style={[styles.heroText, { color: theme.colors.text }]}>
-            Hey <Text>{String.fromCodePoint(0x1F44B)}</Text> {profile.name}{'\n'}
-            How can Codex help today?
-          </Text>
-        </View>
+        {isEmptyState ? (
+          <>
+            <View style={styles.hero}>
+              <Text style={[styles.heroText, { color: theme.colors.text }]}>
+                Hey <Text>{String.fromCodePoint(0x1F44B)}</Text> {profile.name}{'\n'}
+                How can Codex help today?
+              </Text>
+            </View>
 
-        <View style={styles.capabilities}>
-          {messages.length === 0
-            ? capabilities.map((item) => (
+            <View style={styles.capabilities}>
+              {capabilities.map((item) => (
                 <CapabilityChip
                   key={item.id}
                   theme={theme}
                   icon={item.icon as never}
                   label={item.label}
                 />
-              ))
-            : null}
-        </View>
+              ))}
+            </View>
+          </>
+        ) : null}
 
-        {messages.length > 0 ? (
+        {!isEmptyState ? (
           <View style={styles.chatThread}>
             {messages.map((message) => (
               <ChatMessageBubble key={message.id} theme={theme} message={message} />
@@ -107,13 +110,13 @@ export function HomeScreen({
           </View>
         ) : null}
 
-        <View style={styles.helperBlock}>
-          <Text style={[styles.helperText, { color: theme.colors.textMuted }]}>
-            {isStreaming
-              ? 'Codex is streaming a dummy reply...'
-              : 'Send a message to start a mock chat with streaming.'}
-          </Text>
-        </View>
+        {isStreaming || isEmptyState ? (
+          <View style={styles.helperBlock}>
+            <Text style={[styles.helperText, { color: theme.colors.textMuted }]}>
+              {isStreaming ? 'Codex is replying...' : 'Send a message to start chatting.'}
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View

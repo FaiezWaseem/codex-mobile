@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TaskRow } from '../components';
-import { profile, tasks } from '../data/mock';
+import { profile } from '../data/mock';
+import { listTaskSessions } from '../storage/chatDb';
 import type { AppTheme } from '../theme/tokens';
+import type { ChatSessionSummary } from '../types';
 
 export function TasksScreen({
   theme,
@@ -19,19 +22,38 @@ export function TasksScreen({
 }) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
+  const loadSessions = useCallback(async () => {
+    const nextSessions = await listTaskSessions();
+    setSessions(nextSessions);
+    setHasLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    void loadSessions();
+  }, [loadSessions]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadSessions();
+    }, [loadSessions]),
+  );
+
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
     if (!normalizedQuery) {
-      return tasks;
+      return sessions;
     }
 
-    return tasks.filter((task) =>
-      [task.title, task.category, task.workspace].some((value) =>
+    return sessions.filter((task) =>
+      [task.title, task.category].some((value) =>
         value.toLowerCase().includes(normalizedQuery),
       ),
     );
-  }, [query]);
+  }, [query, sessions]);
 
   return (
     <View style={[styles.page, { backgroundColor: theme.colors.background }]}>
@@ -71,17 +93,23 @@ export function TasksScreen({
         <View style={styles.listWrap}>
           {filteredTasks.map((task) => (
             <TaskRow
-              key={task.id}
+              key={task.sessionId}
               theme={theme}
               title={task.title}
-              category={task.category}
+              meta={task.category}
               updatedAt={task.updatedAt}
-              onPress={() => onOpenTask(task.id)}
+              onPress={() =>
+                task.sessionId === 'home-chat'
+                  ? onOpenHome()
+                  : onOpenTask(task.sessionId.replace(/^task-/, ''))
+              }
             />
           ))}
-          {filteredTasks.length === 0 ? (
+          {hasLoaded && filteredTasks.length === 0 ? (
             <Text style={[styles.emptyText, { color: theme.colors.textMuted }]}>
-              No tasks match your search.
+              {query.trim()
+                ? 'No saved chats match your search.'
+                : 'No saved chats yet. Start a conversation and it will appear here.'}
             </Text>
           ) : null}
         </View>

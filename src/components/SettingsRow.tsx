@@ -1,18 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AppTheme } from '../theme/tokens';
 
 export function SettingsRow({
   theme,
   label,
   value,
+  onPress,
 }: {
   theme: AppTheme;
   label: string;
   value?: string;
+  onPress?: () => void;
 }) {
   return (
-    <View
+    <Pressable
+      onPress={onPress}
       style={[
         styles.settingsRow,
         {
@@ -28,7 +31,7 @@ export function SettingsRow({
         ) : null}
         <Ionicons name="chevron-forward" size={20} color={theme.colors.textMuted} />
       </View>
-    </View>
+    </Pressable>
   );
 }
 

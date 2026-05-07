@@ -12,13 +12,17 @@ import type { AppTheme } from '../theme/tokens';
 import type { ThemeMode } from '../types';
 
 export function SettingsScreen({
+  baseUrl,
   theme,
   mode,
+  onOpenConfig,
   onSetMode,
   onClose,
 }: {
+  baseUrl: string;
   theme: AppTheme;
   mode: ThemeMode;
+  onOpenConfig: () => void;
   onSetMode: (mode: ThemeMode) => void;
   onClose: () => void;
 }) {
@@ -117,6 +121,12 @@ export function SettingsScreen({
               </View>
             </View>
             <View style={{ paddingHorizontal: 12 }}>
+              <SettingsRow
+                theme={theme}
+                label="Agent Config"
+                value={baseUrl.trim() ? 'Configured' : 'Not set'}
+                onPress={onOpenConfig}
+              />
               <SettingsRow theme={theme} label="Account" />
               <SettingsRow theme={theme} label="About Codex" />
               <SettingsRow theme={theme} label="Log out" />

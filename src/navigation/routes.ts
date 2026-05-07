@@ -2,6 +2,7 @@ import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList } from './types';
 
 export const routeNames = {
+  config: 'Config',
   home: 'Home',
   tasks: 'Tasks',
   taskDetail: 'TaskDetail',
@@ -13,6 +14,7 @@ type RouteTuple<T extends keyof RootStackParamList> = RootStackParamList[T] exte
   : readonly [T, RootStackParamList[T]];
 
 export const appRoutes = {
+  config: (required = false): RouteTuple<'Config'> => [routeNames.config, { required }],
   home: (): RouteTuple<'Home'> => [routeNames.home],
   tasks: (): RouteTuple<'Tasks'> => [routeNames.tasks],
   taskDetail: (taskId: string): RouteTuple<'TaskDetail'> => [

@@ -5,13 +5,13 @@ import type { AppTheme } from '../theme/tokens';
 export function TaskRow({
   theme,
   title,
-  category,
+  meta,
   updatedAt,
   onPress,
 }: {
   theme: AppTheme;
   title: string;
-  category: string;
+  meta: string;
   updatedAt: string;
   onPress: () => void;
 }) {
@@ -25,7 +25,7 @@ export function TaskRow({
           {title}
         </Text>
         <Text style={[styles.taskMeta, { color: theme.colors.textMuted }]}>
-          {category} . Code
+          {meta}
         </Text>
       </View>
       <Text style={[styles.taskTime, { color: theme.colors.textMuted }]}>{updatedAt}</Text>

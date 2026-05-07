@@ -1,6 +1,7 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 export type RootStackParamList = {
+  Config: { required?: boolean } | undefined;
   Home: undefined;
   Tasks: undefined;
   TaskDetail: { taskId: string };

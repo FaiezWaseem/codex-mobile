@@ -1,5 +1,11 @@
 export type ThemeMode = 'system' | 'light' | 'dark';
 
+export type AgentConfig = {
+  baseUrl: string;
+  bearerToken: string;
+  model?: string;
+};
+
 export type WorkspaceMode = 'MTC' | 'Code';
 
 export type Capability = {
@@ -16,6 +22,14 @@ export type ChatMessage = {
   content: string;
   createdAt: string;
   streaming?: boolean;
+  error?: boolean;
+};
+
+export type ChatSessionSummary = {
+  sessionId: string;
+  title: string;
+  updatedAt: string;
+  category: string;
 };
 
 export type TaskStatus = 'draft' | 'in-progress' | 'done';
