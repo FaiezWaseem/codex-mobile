@@ -10,8 +10,18 @@ import {
 import { fetch as expoFetch } from 'expo/fetch';
 import OpenAI from 'openai/index';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
-import { loadChatMessages, saveChatMessages } from '../storage/chatDb';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
+import {
+  loadChatMessages,
+  loadChatSessionState,
+  saveChatMessages,
+  saveChatSessionState,
+} from '../storage/chatDb';
+import {
+  executeLocalToolCall,
+  LOCAL_TOOL_DEFINITIONS,
+  shouldAttemptLocalTools,
+} from '../tools/localTools';
 import type { AgentConfig, ChatAttachment, ChatMessage, ReasoningEffort } from '../types';
 
 type UseRelayChatOptions = {
@@ -71,6 +81,28 @@ type RelayMessage = {
 
 type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
+type LocalToolCall = {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
+
+type CompletionLoopMessage =
+  | {
+      role: 'system' | 'user' | 'assistant';
+      content: string | RelayContentPart[];
+      tool_calls?: LocalToolCall[];
+    }
+  | {
+      role: 'tool';
+      tool_call_id: string;
+      name: string;
+      content: string;
+    };
+
 type RelayErrorInfo = {
   status: number;
   statusText: string;
@@ -89,6 +121,48 @@ type RelayMediaItem = {
   uri?: string;
   previewUrl?: string;
 };
+
+type RelayJobPayload = {
+  id?: string;
+  jobId?: string;
+  status?: string;
+  error?: string;
+  message?: string;
+  detail?: string;
+  data?: RelayJobPayload;
+  job?: RelayJobPayload;
+};
+
+type RelayHistoryItem = {
+  id?: string | number;
+  role?: ChatMessage['role'] | 'system' | 'developer';
+  content?: unknown;
+  createdAt?: string;
+  created_at?: string;
+  sessionId?: string;
+  route?: string;
+  attachments?: Array<{
+    id?: string;
+    type?: string;
+    uri?: string;
+    relayUrl?: string;
+    previewUri?: string;
+    mimeType?: string;
+    fileName?: string;
+  }>;
+};
+
+type RelayHistoryPayload =
+  | RelayHistoryItem[]
+  | {
+      object?: string;
+      sessionId?: string;
+      items?: RelayHistoryItem[];
+      data?: RelayHistoryItem[];
+      entries?: RelayHistoryItem[];
+      messages?: RelayHistoryItem[];
+      history?: RelayHistoryItem[];
+    };
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -151,6 +225,34 @@ function logRelayError(label: string, details: Record<string, unknown>) {
   console.error(`[relay] ${label}`, details);
 }
 
+function logRelayDebug(label: string, details: Record<string, unknown>) {
+  console.log(`[relay] ${label}`, details);
+}
+
+async function fetchRelayJson<T>(
+  config: AgentConfig,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(buildRelayEndpoint(config.baseUrl, path), {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${config.bearerToken}`,
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorInfo = await readRelayError(response);
+    throw new Error(
+      extractRelayErrorMessage(errorInfo) || `Relay request failed (${response.status})`,
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
 function toRelayMessages(messages: ChatMessage[], systemPrompt?: string): RelayMessage[] {
   const baseMessages = messages
     .filter(
@@ -180,6 +282,14 @@ function toRelayMessages(messages: ChatMessage[], systemPrompt?: string): RelayM
   return systemPrompt
     ? [{ role: 'system', content: systemPrompt }, ...baseMessages]
     : baseMessages;
+}
+
+function toCompletionLoopMessages(messages: ChatMessage[], systemPrompt?: string): CompletionLoopMessage[] {
+  const baseMessages = toRelayMessages(messages, systemPrompt);
+  return baseMessages.map((message) => ({
+    role: message.role,
+    content: message.content,
+  }));
 }
 
 function extractStreamDelta(payload: unknown): string {
@@ -212,6 +322,344 @@ function extractStreamDelta(payload: unknown): string {
   }
 
   return typeof choice?.message?.content === 'string' ? choice.message.content : '';
+}
+
+function normalizeRelayTextContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .map((part) => {
+      if (typeof part === 'string') {
+        return part;
+      }
+
+      if (!part || typeof part !== 'object') {
+        return '';
+      }
+
+      const typed = part as {
+        text?: string;
+        type?: string;
+        value?: string;
+        content?: string;
+      };
+
+      return (
+        typed.text ||
+        typed.value ||
+        typed.content ||
+        ''
+      );
+    })
+    .join('');
+}
+
+function normalizeRelayAttachments(content: unknown, fallback?: RelayHistoryItem['attachments']) {
+  const attachments: ChatAttachment[] = [];
+
+  if (Array.isArray(fallback)) {
+    attachments.push(
+      ...fallback
+        .filter((attachment) => (attachment.type || 'image') === 'image' && Boolean(attachment.uri))
+        .map((attachment, index) => ({
+          id: attachment.id || `attachment-${index}`,
+          type: 'image' as const,
+          uri: attachment.uri!,
+          relayUrl: attachment.relayUrl,
+          previewUri: attachment.previewUri,
+          mimeType: attachment.mimeType,
+          fileName: attachment.fileName,
+        })),
+    );
+  }
+
+  if (!Array.isArray(content)) {
+    return attachments.length > 0 ? attachments : undefined;
+  }
+
+  content.forEach((part, index) => {
+    if (!part || typeof part !== 'object') {
+      return;
+    }
+
+    const typed = part as {
+      type?: string;
+      image_url?: { url?: string };
+      fileName?: string;
+      mimeType?: string;
+    };
+
+    if (typed.type !== 'image_url' || !typed.image_url?.url) {
+      return;
+    }
+
+    attachments.push({
+      id: `attachment-${index}`,
+      type: 'image',
+      uri: typed.image_url.url,
+      relayUrl: typed.image_url.url,
+      mimeType: typed.mimeType,
+      fileName: typed.fileName,
+    });
+  });
+
+  return attachments.length > 0 ? attachments : undefined;
+}
+
+function normalizeRelayHistory(payload: RelayHistoryPayload): ChatMessage[] {
+  const items = Array.isArray(payload)
+    ? payload
+    : payload.history || payload.messages || payload.items || payload.data || [];
+  const entries = Array.isArray(payload) ? [] : payload.entries || [];
+
+  return items
+    .filter((item) => item.role === 'user' || item.role === 'assistant')
+    .map((item, index) => {
+      const matchingEntry = entries[index];
+
+      return {
+        id:
+          String(item.id || matchingEntry?.id || `relay-${item.role}-${index}`),
+        role: item.role as ChatMessage['role'],
+        content: normalizeRelayTextContent(item.content),
+        attachments: normalizeRelayAttachments(
+          item.content,
+          item.attachments || matchingEntry?.attachments,
+        ),
+        createdAt:
+          item.createdAt ||
+          item.created_at ||
+          matchingEntry?.createdAt ||
+          matchingEntry?.created_at ||
+          new Date().toISOString(),
+        streaming: false,
+        error: false,
+      };
+    });
+}
+
+function getMessageSignature(message: ChatMessage) {
+  return JSON.stringify({
+    role: message.role,
+    content: message.content,
+    attachments:
+      message.attachments?.map((attachment) => ({
+        type: attachment.type,
+        uri: attachment.uri,
+        relayUrl: attachment.relayUrl,
+        fileName: attachment.fileName,
+      })) || [],
+  });
+}
+
+function mergeRemoteHistoryWithLocal(currentMessages: ChatMessage[], remoteMessages: ChatMessage[]) {
+  const mergedBySignature = new Map<string, ChatMessage>();
+
+  currentMessages
+    .filter((message) => !message.streaming && !message.error)
+    .forEach((message) => {
+      mergedBySignature.set(getMessageSignature(message), message);
+    });
+
+  remoteMessages.forEach((message) => {
+    mergedBySignature.set(getMessageSignature(message), message);
+  });
+
+  return [...mergedBySignature.values()].sort((left, right) => {
+    const leftTime = new Date(left.createdAt).getTime();
+    const rightTime = new Date(right.createdAt).getTime();
+
+    if (Number.isNaN(leftTime) || Number.isNaN(rightTime) || leftTime === rightTime) {
+      return 0;
+    }
+
+    return leftTime - rightTime;
+  });
+}
+
+async function createRelayJob(
+  config: AgentConfig,
+  sessionId: string,
+  messages: RelayMessage[],
+): Promise<{ jobId: string }> {
+  const payload = await fetchRelayJson<RelayJobPayload>(config, '/v1/jobs', {
+    method: 'POST',
+    body: JSON.stringify({
+      route: '/v1/chat/completions',
+      request: {
+        sessionId,
+        model: config.model || 'gpt-5.4-mini',
+        reasoningEffort: config.reasoningEffort || 'medium',
+        messages,
+      },
+    }),
+  });
+
+  const jobId =
+    payload.id ||
+    payload.jobId ||
+    payload.data?.id ||
+    payload.data?.jobId ||
+    payload.job?.id ||
+    payload.job?.jobId;
+
+  logRelayDebug('create relay job response', {
+    sessionId,
+    jobId: jobId || null,
+    response: payload,
+  });
+
+  if (!jobId) {
+    logRelayError('create relay job missing id', {
+      sessionId,
+      response: payload,
+    });
+    throw new Error('Relay did not return a job id.');
+  }
+
+  return { jobId };
+}
+
+async function requestCompletionWithLocalTools(
+  config: AgentConfig,
+  sessionId: string,
+  messages: CompletionLoopMessage[],
+) {
+  const response = await fetch(buildRelayEndpoint(config.baseUrl, '/v1/chat/completions'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.bearerToken}`,
+      'Content-Type': 'application/json',
+      'x-session-id': sessionId,
+    },
+    body: JSON.stringify({
+      model: config.model || 'gpt-5.4-mini',
+      reasoning_effort: config.reasoningEffort || 'medium',
+      stream: false,
+      tool_choice: 'auto',
+      tools: LOCAL_TOOL_DEFINITIONS,
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorInfo = await readRelayError(response);
+    throw new Error(
+      extractRelayErrorMessage(errorInfo) || `Relay request failed (${response.status})`,
+    );
+  }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        role?: 'assistant';
+        content?: string | null;
+        tool_calls?: LocalToolCall[];
+      };
+    }>;
+  };
+
+  return payload.choices?.[0]?.message;
+}
+
+async function resolveLocalToolConversation(
+  config: AgentConfig,
+  sessionId: string,
+  baseMessages: CompletionLoopMessage[],
+) {
+  const workingMessages = [...baseMessages];
+
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const assistantMessage = await requestCompletionWithLocalTools(config, sessionId, workingMessages);
+
+    logRelayDebug('local tool completion response', {
+      sessionId,
+      iteration,
+      hasToolCalls: Boolean(assistantMessage?.tool_calls?.length),
+      contentPreview: assistantMessage?.content?.slice(0, 160) || '',
+      toolCalls:
+        assistantMessage?.tool_calls?.map((toolCall) => ({
+          id: toolCall.id,
+          name: toolCall.function.name,
+        })) || [],
+    });
+
+    if (!assistantMessage) {
+      return 'No content returned.';
+    }
+
+    const toolCalls = assistantMessage.tool_calls || [];
+
+    if (toolCalls.length === 0) {
+      return assistantMessage.content || 'No content returned.';
+    }
+
+    workingMessages.push({
+      role: 'assistant',
+      content: assistantMessage.content || '',
+      tool_calls: toolCalls,
+    });
+
+    for (const toolCall of toolCalls) {
+      const toolResult = await executeLocalToolCall(toolCall);
+
+      logRelayDebug('local tool executed', {
+        sessionId,
+        toolName: toolCall.function.name,
+        toolCallId: toolCall.id,
+        resultPreview: toolResult.slice(0, 200),
+      });
+
+      workingMessages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        name: toolCall.function.name,
+        content: toolResult,
+      });
+    }
+  }
+
+  throw new Error('Local tool loop exceeded the maximum number of iterations.');
+}
+
+async function fetchRelayJob(config: AgentConfig, jobId: string) {
+  const payload = await fetchRelayJson<RelayJobPayload>(
+    config,
+    `/v1/jobs/${encodeURIComponent(jobId)}`,
+  );
+
+  logRelayDebug('job status poll', {
+    jobId,
+    status: payload.status || payload.data?.status || payload.job?.status || null,
+    payload,
+  });
+
+  return payload;
+}
+
+async function fetchRelaySessionHistory(config: AgentConfig, sessionId: string) {
+  const payload = await fetchRelayJson<RelayHistoryPayload>(
+    config,
+    `/v1/sessions/${encodeURIComponent(sessionId)}/history`,
+    {
+      headers: {
+        'x-session-id': sessionId,
+      },
+    },
+  );
+
+  logRelayDebug('session history fetched', {
+    sessionId,
+    historyCount: normalizeRelayHistory(payload).length,
+  });
+
+  return normalizeRelayHistory(payload);
 }
 
 async function requestFallbackCompletion(
@@ -393,9 +841,12 @@ export function useRelayChat(options: UseRelayChatOptions) {
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
+  const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 200);
   const abortRef = useRef<AbortController | null>(null);
+  const pendingJobIdRef = useRef<string | null>(null);
+  const jobPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestMessagesRef = useRef<ChatMessage[]>(options.initialMessages ?? []);
   const hasLoadedHistoryRef = useRef(false);
@@ -405,27 +856,214 @@ export function useRelayChat(options: UseRelayChatOptions) {
   }, [messages]);
 
   useEffect(() => {
+    pendingJobIdRef.current = pendingJobId;
+  }, [pendingJobId]);
+
+  useEffect(() => {
     hasLoadedHistoryRef.current = hasLoadedHistory;
   }, [hasLoadedHistory]);
 
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      if (jobPollTimerRef.current) {
+        clearTimeout(jobPollTimerRef.current);
+      }
       if (persistTimerRef.current) {
         clearTimeout(persistTimerRef.current);
       }
 
       if (hasLoadedHistoryRef.current) {
         void saveChatMessages(options.sessionId, latestMessagesRef.current);
+        void saveChatSessionState(options.sessionId, {
+          pendingJobId: pendingJobIdRef.current,
+        });
       }
     };
   }, [options.sessionId]);
+
+  const clearPendingJob = useCallback(async () => {
+    pendingJobIdRef.current = null;
+    setPendingJobId(null);
+    await saveChatSessionState(options.sessionId, { pendingJobId: null });
+  }, [options.sessionId]);
+
+  const markPendingJob = useCallback(async (jobId: string) => {
+    pendingJobIdRef.current = jobId;
+    setPendingJobId(jobId);
+    await saveChatSessionState(options.sessionId, { pendingJobId: jobId });
+  }, [options.sessionId]);
+
+  const replaceStreamingMessage = useCallback((content: string, error = false) => {
+    setMessages((current) => {
+      const hasStreamingMessage = current.some((message) => message.streaming);
+
+      if (hasStreamingMessage) {
+        return current.map((message) =>
+          message.streaming
+            ? {
+                ...message,
+                content,
+                streaming: false,
+                error,
+              }
+            : message,
+        );
+      }
+
+      return [
+        ...current,
+        {
+          id: createId(error ? 'assistant-error' : 'assistant'),
+          role: 'assistant',
+          content,
+          createdAt: new Date().toISOString(),
+          streaming: false,
+          error,
+        },
+      ];
+    });
+  }, []);
+
+  const syncMessagesFromRelay = useCallback(async () => {
+    const remoteMessages = await fetchRelaySessionHistory(options.config, options.sessionId);
+
+    logRelayDebug('incoming relay messages sync', {
+      sessionId: options.sessionId,
+      lastTwoMessages: remoteMessages.slice(-2).map((message) => ({
+        id: message.id,
+        role: message.role,
+        contentPreview: message.content.slice(0, 160),
+        createdAt: message.createdAt,
+      })),
+    });
+
+    if (remoteMessages.length > 0) {
+      setMessages((current) => {
+        const mergedMessages = mergeRemoteHistoryWithLocal(current, remoteMessages);
+
+        logRelayDebug('merged relay messages sync', {
+          sessionId: options.sessionId,
+          localCount: current.length,
+          remoteCount: remoteMessages.length,
+          mergedCount: mergedMessages.length,
+          lastTwoMessages: mergedMessages.slice(-2).map((message) => ({
+            id: message.id,
+            role: message.role,
+            contentPreview: message.content.slice(0, 160),
+          })),
+        });
+
+        return mergedMessages;
+      });
+    }
+  }, [options.config, options.sessionId]);
+
+  const reconcilePendingJob = useCallback(async (jobId: string) => {
+    try {
+      const job = await fetchRelayJob(options.config, jobId);
+      const jobStatus = (job.status || '').toLowerCase();
+
+      logRelayDebug('incoming relay event listener', {
+        mode: 'job-polling',
+        sessionId: options.sessionId,
+        jobId,
+        status: jobStatus || 'unknown',
+      });
+
+      if (jobStatus === 'completed' || jobStatus === 'succeeded' || jobStatus === 'success') {
+        await syncMessagesFromRelay();
+        await clearPendingJob();
+        setIsStreaming(false);
+        return true;
+      }
+
+      if (jobStatus === 'failed' || jobStatus === 'cancelled' || jobStatus === 'canceled') {
+        replaceStreamingMessage(
+          job.error || job.message || job.detail || 'The relay job failed before it could finish.',
+          true,
+        );
+        await clearPendingJob();
+        setIsStreaming(false);
+        return true;
+      }
+    } catch (error) {
+      logRelayError('pending job reconcile failed', {
+        sessionId: options.sessionId,
+        jobId,
+        message: error instanceof Error ? error.message : 'Unknown reconcile error',
+      });
+    }
+
+    return false;
+  }, [clearPendingJob, options.config, options.sessionId, replaceStreamingMessage, syncMessagesFromRelay]);
+
+  const scheduleJobPolling = useCallback((jobId: string) => {
+    if (jobPollTimerRef.current) {
+      clearTimeout(jobPollTimerRef.current);
+    }
+
+    const poll = async () => {
+      const finished = await reconcilePendingJob(jobId);
+
+      if (finished || pendingJobIdRef.current !== jobId) {
+        return;
+      }
+
+      jobPollTimerRef.current = setTimeout(() => {
+        void poll();
+      }, 2000);
+    };
+
+    jobPollTimerRef.current = setTimeout(() => {
+      void poll();
+    }, 1200);
+  }, [reconcilePendingJob]);
+
+  const syncRelayState = useCallback(async () => {
+    const activePendingJobId = pendingJobIdRef.current;
+    const hasStreamingMessage = latestMessagesRef.current.some((message) => message.streaming);
+
+    if (activePendingJobId) {
+      setIsStreaming(true);
+      const finished = await reconcilePendingJob(activePendingJobId);
+
+      if (!finished) {
+        scheduleJobPolling(activePendingJobId);
+      }
+
+      return;
+    }
+
+    if (!hasStreamingMessage) {
+      return;
+    }
+
+    try {
+      await syncMessagesFromRelay();
+    } finally {
+      setMessages((current) =>
+        current.map((message) =>
+          message.streaming
+            ? {
+                ...message,
+                streaming: false,
+              }
+            : message,
+        ),
+      );
+      setIsStreaming(false);
+    }
+  }, [reconcilePendingJob, scheduleJobPolling, syncMessagesFromRelay]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function hydrateMessages() {
-      const storedMessages = await loadChatMessages(options.sessionId);
+      const [storedMessages, storedState] = await Promise.all([
+        loadChatMessages(options.sessionId),
+        loadChatSessionState(options.sessionId),
+      ]);
 
       if (cancelled) {
         return;
@@ -437,7 +1075,17 @@ export function useRelayChat(options: UseRelayChatOptions) {
         setMessages(options.initialMessages ?? []);
       }
 
+      setPendingJobId(storedState.pendingJobId);
+      pendingJobIdRef.current = storedState.pendingJobId;
       setHasLoadedHistory(true);
+
+      const shouldSync =
+        Boolean(storedState.pendingJobId) ||
+        storedMessages.some((message) => message.streaming);
+
+      if (shouldSync) {
+        void syncRelayState();
+      }
     }
 
     void hydrateMessages();
@@ -445,7 +1093,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
     return () => {
       cancelled = true;
     };
-  }, [options.initialMessages, options.sessionId]);
+  }, [options.initialMessages, options.sessionId, syncRelayState]);
 
   useEffect(() => {
     if (!hasLoadedHistory) {
@@ -466,6 +1114,37 @@ export function useRelayChat(options: UseRelayChatOptions) {
       }
     };
   }, [hasLoadedHistory, messages, options.sessionId]);
+
+  useEffect(() => {
+    if (!hasLoadedHistory) {
+      return;
+    }
+
+    void saveChatSessionState(options.sessionId, {
+      pendingJobId,
+    });
+  }, [hasLoadedHistory, options.sessionId, pendingJobId]);
+
+  useEffect(() => {
+    if (!hasLoadedHistory) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState !== 'active') {
+        return;
+      }
+
+      if (
+        pendingJobIdRef.current ||
+        latestMessagesRef.current.some((message) => message.streaming)
+      ) {
+        void syncRelayState();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [hasLoadedHistory, syncRelayState]);
 
   const addImageAttachment = useCallback(async () => {
     if (isStreaming) {
@@ -619,6 +1298,9 @@ export function useRelayChat(options: UseRelayChatOptions) {
     }
 
     abortRef.current?.abort();
+    if (jobPollTimerRef.current) {
+      clearTimeout(jobPollTimerRef.current);
+    }
     setIsStreaming(true);
 
     try {
@@ -664,61 +1346,48 @@ export function useRelayChat(options: UseRelayChatOptions) {
       const nextMessages = [...messages, userMessage];
       const relayMessages = toRelayMessages(nextMessages, options.systemPrompt);
 
+      logRelayDebug('chat send last two messages', {
+        sessionId: options.sessionId,
+        totalMessages: relayMessages.length,
+        lastTwoMessages: relayMessages.slice(-2).map((message) => ({
+          role: message.role,
+          content:
+            typeof message.content === 'string'
+              ? message.content.slice(0, 200)
+              : message.content.map((part) =>
+                  part.type === 'text'
+                    ? { type: part.type, text: part.text.slice(0, 200) }
+                    : { type: part.type, url: part.image_url.url },
+                ),
+        })),
+      });
+
       setInput('');
       setPendingAttachments([]);
       setMessages((current) => [...current, userMessage, assistantMessage]);
+      void saveChatMessages(options.sessionId, [...messages, userMessage, assistantMessage]);
 
-      const abortController = new AbortController();
-      abortRef.current = abortController;
-      const client = createOpenAIClient(options.config, options.sessionId);
+      if (shouldAttemptLocalTools(trimmed)) {
+        logRelayDebug('chat send using local tool route', {
+          sessionId: options.sessionId,
+          inputPreview: trimmed.slice(0, 200),
+        });
 
-      const stream = await client.chat.completions.create(
-        {
-          model: options.config.model || 'gpt-5.4-mini',
-          reasoning_effort: options.config.reasoningEffort || 'medium',
-          messages: relayMessages as OpenAIMessage[],
-          stream: true,
-        },
-        {
-          signal: abortController.signal,
-        },
-      );
-
-      let aggregated = '';
-
-      for await (const chunk of stream) {
-        const delta = extractStreamDelta(chunk);
-
-        if (!delta) {
-          continue;
-        }
-
-        aggregated += delta;
-
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === assistantId
-              ? {
-                  ...message,
-                  content: aggregated,
-                  streaming: true,
-                }
-              : message,
-          ),
+        const completionMessages = toCompletionLoopMessages(nextMessages, options.systemPrompt);
+        const finalAssistantContent = await resolveLocalToolConversation(
+          options.config,
+          options.sessionId,
+          completionMessages,
         );
+
+        replaceStreamingMessage(finalAssistantContent, false);
+        setIsStreaming(false);
+        return;
       }
 
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId
-            ? {
-                ...message,
-                content: aggregated || 'No content returned.',
-                streaming: false,
-              }
-            : message,
-        ),
-      );
+      const { jobId } = await createRelayJob(options.config, options.sessionId, relayMessages);
+      await markPendingJob(jobId);
+      scheduleJobPolling(jobId);
     } catch (error) {
       if (abortRef.current?.signal.aborted) {
         return;
@@ -743,36 +1412,22 @@ export function useRelayChat(options: UseRelayChatOptions) {
           ? error.message
           : 'Unable to reach the relay. Check your base URL and bearer token.';
 
-      setMessages((current) => {
-        if (current.some((message) => message.streaming)) {
-          return current.map((message) =>
-            message.streaming
-              ? {
-                  ...message,
-                  content: errorMessage,
-                  streaming: false,
-                  error: true,
-                }
-              : message,
-          );
-        }
-
-        return [
-          ...current,
-          {
-            id: createId('assistant-error'),
-            role: 'assistant',
-            content: errorMessage,
-            createdAt: new Date().toISOString(),
-            error: true,
-          },
-        ];
-      });
+      replaceStreamingMessage(errorMessage, true);
+      await clearPendingJob();
     } finally {
       abortRef.current = null;
-      setIsStreaming(false);
     }
-  }, [input, isStreaming, messages, options]);
+  }, [
+    clearPendingJob,
+    input,
+    isStreaming,
+    markPendingJob,
+    messages,
+    options,
+    pendingAttachments,
+    replaceStreamingMessage,
+    scheduleJobPolling,
+  ]);
 
   return {
     addImageAttachment,

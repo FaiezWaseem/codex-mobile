@@ -30,6 +30,66 @@ type NavigatorProps = {
   setMode: (mode: ThemeMode) => void;
 };
 
+type RelaySessionCreatePayload = {
+  id?: string;
+  sessionId?: string;
+  data?: RelaySessionCreatePayload;
+  session?: RelaySessionCreatePayload;
+};
+
+function createSessionId(prefix = 'codexm') {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function logSessionDebug(label: string, details: Record<string, unknown>) {
+  console.log(`[sessions] ${label}`, details);
+}
+
+async function createRelaySession(config: AgentConfig, requestedSessionId?: string) {
+  const sessionId = requestedSessionId || createSessionId();
+  logSessionDebug('createRelaySession request', {
+    requestedSessionId: sessionId,
+    baseUrl: config.baseUrl,
+  });
+  const response = await fetch(`${config.baseUrl}/v1/sessions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.bearerToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      sessionId,
+      name: 'Mobile Chat',
+      metadata: {
+        source: 'mobile',
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Session create failed (${response.status})`);
+  }
+
+  const payload = (await response.json()) as RelaySessionCreatePayload;
+  const resolvedSessionId = (
+    payload.sessionId ||
+    payload.id ||
+    payload.data?.sessionId ||
+    payload.data?.id ||
+    payload.session?.sessionId ||
+    payload.session?.id ||
+    sessionId
+  );
+
+  logSessionDebug('createRelaySession response', {
+    requestedSessionId: sessionId,
+    resolvedSessionId,
+    payload,
+  });
+
+  return resolvedSessionId;
+}
+
 function safeGoBack(navigation: NavigationProp<RootStackParamList>) {
   if (navigation.canGoBack()) {
     navigation.goBack();
@@ -87,7 +147,7 @@ function HomeRoute({
     assistantName: 'Codex',
     config: config!,
     sessionId,
-    systemPrompt: 'the mobile assistant home screen',
+    systemPrompt: 'You are Codex, an AI assistant, User is Communicating with you through a mobile app',
   });
 
   return (
@@ -127,6 +187,35 @@ function TasksRoute({
   config: AgentConfig | null;
   theme: AppTheme;
 }) {
+  const startNewChat = async () => {
+    if (!config) {
+      const fallbackSessionId = createSessionId();
+      logSessionDebug('startNewChat fallback without config', {
+        sessionId: fallbackSessionId,
+      });
+      navigateTo(navigation, appRoutes.home(fallbackSessionId));
+      return;
+    }
+
+    try {
+      const sessionId = await createRelaySession(config);
+      logSessionDebug('startNewChat navigate success', {
+        sessionId,
+      });
+      navigateTo(navigation, appRoutes.home(sessionId));
+    } catch (error) {
+      const fallbackSessionId = createSessionId();
+      logSessionDebug('startNewChat fallback after error', {
+        sessionId: fallbackSessionId,
+        message: error instanceof Error ? error.message : 'Unknown session create error',
+      });
+      console.error('[sessions] createRelaySession failed', {
+        message: error instanceof Error ? error.message : 'Unknown session create error',
+      });
+      navigateTo(navigation, appRoutes.home(fallbackSessionId));
+    }
+  };
+
   return (
     <TasksScreen
       baseUrl={config?.baseUrl || ''}
@@ -134,7 +223,7 @@ function TasksRoute({
       theme={theme}
       onOpenTask={(taskId) => navigateTo(navigation, appRoutes.taskDetail(taskId))}
       onOpenHome={(sessionId) => navigateTo(navigation, appRoutes.home(sessionId))}
-      onStartNewChat={() => navigateTo(navigation, appRoutes.home(`home-chat-${Date.now()}`))}
+      onStartNewChat={startNewChat}
       onOpenSettings={() => navigateTo(navigation, appRoutes.settings())}
     />
   );

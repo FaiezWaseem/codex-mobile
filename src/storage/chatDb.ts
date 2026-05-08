@@ -22,6 +22,11 @@ type SessionRow = {
   updated_at: string;
 };
 
+type ChatSessionStateRow = {
+  session_id: string;
+  pending_job_id: string | null;
+};
+
 async function getDatabase() {
   if (!databasePromise) {
     databasePromise = SQLite.openDatabaseAsync(DATABASE_NAME);
@@ -46,6 +51,10 @@ async function getDatabase() {
         );
         CREATE INDEX IF NOT EXISTS idx_chat_messages_session_position
         ON chat_messages (session_id, position);
+        CREATE TABLE IF NOT EXISTS chat_session_state (
+          session_id TEXT PRIMARY KEY NOT NULL,
+          pending_job_id TEXT
+        );
       `);
 
       const columns = await db.getAllAsync<{ name: string }>(
@@ -123,9 +132,47 @@ export async function saveChatMessages(sessionId: string, messages: ChatMessage[
   }
 }
 
+export async function loadChatSessionState(sessionId: string): Promise<{
+  pendingJobId: string | null;
+}> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<ChatSessionStateRow>(
+    `
+      SELECT session_id, pending_job_id
+      FROM chat_session_state
+      WHERE session_id = ?
+    `,
+    sessionId,
+  );
+
+  return {
+    pendingJobId: row?.pending_job_id ?? null,
+  };
+}
+
+export async function saveChatSessionState(
+  sessionId: string,
+  state: {
+    pendingJobId: string | null;
+  },
+) {
+  const db = await getDatabase();
+
+  await db.runAsync(
+    `
+      INSERT INTO chat_session_state (session_id, pending_job_id)
+      VALUES (?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET pending_job_id = excluded.pending_job_id
+    `,
+    sessionId,
+    state.pendingJobId,
+  );
+}
+
 export async function deleteChatSession(sessionId: string) {
   const db = await getDatabase();
   await db.runAsync('DELETE FROM chat_messages WHERE session_id = ?', sessionId);
+  await db.runAsync('DELETE FROM chat_session_state WHERE session_id = ?', sessionId);
 }
 
 function normalizeSessionTitle(sessionId: string, messages: ChatMessage[]) {

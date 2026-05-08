@@ -34,6 +34,14 @@
         {
           "microphonePermission": "Allow Codex to access your microphone for voice messages."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#5A30B5",
+          "defaultChannel": "default"
+        }
       ]
     ],
     "extra": {
