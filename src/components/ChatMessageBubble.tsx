@@ -601,8 +601,8 @@ export function ChatMessageBubble({
         ))}
         {hasStreamingPlaceholder ? (
           <View style={styles.thinkingWrap}>
-            <Text style={[styles.content, styles.thinkingText, { color: textColor }]}>
-              {`thinking est ${elapsedSeconds}s`}
+            <Text style={[styles.content, styles.thinkingText, { color: '#ebebeb' }]}>
+              {`Thinking est ${elapsedSeconds}s`}
             </Text>
             <Text style={[styles.thinkingMeta, { color: theme.colors.textMuted }]}>
               {`${elapsedSeconds}s elapsed`}
@@ -677,8 +677,8 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   content: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 22,
   },
   blockSpacing: {
     marginBottom: 10,

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
   useEffect,
+  useState,
   useRef,
 } from 'react';
 import {
@@ -13,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatMessageBubble, Composer, IconButton } from '../components';
+import { ChatMessageBubble, Composer, IconButton, MediaManagerModal } from '../components';
 import { AVAILABLE_MODELS, AVAILABLE_REASONING_EFFORTS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
 import type { ChatMessage, ReasoningEffort, Task } from '../types';
@@ -22,6 +23,7 @@ export function TaskDetailScreen({
   theme,
   task,
   onBack,
+  baseUrl,
   input,
   pendingAttachments,
   bearerToken,
@@ -35,6 +37,7 @@ export function TaskDetailScreen({
   onSelectModel,
   onSelectReasoningEffort,
   onAddAttachment,
+  onAddExistingMediaAttachment,
   onRemoveAttachment,
   onToggleVoiceInput,
   onSendMessage,
@@ -43,6 +46,7 @@ export function TaskDetailScreen({
   theme: AppTheme;
   task: Task;
   onBack: () => void;
+  baseUrl: string;
   input: string;
   pendingAttachments: Parameters<typeof Composer>[0]['attachments'];
   bearerToken: string;
@@ -56,6 +60,17 @@ export function TaskDetailScreen({
   onSelectModel: (model: string) => void;
   onSelectReasoningEffort: (reasoningEffort: ReasoningEffort) => void;
   onAddAttachment: () => void | Promise<void>;
+  onAddExistingMediaAttachment: (media: {
+    id?: string;
+    fileName?: string;
+    name?: string;
+    contentType?: string;
+    mimeType?: string;
+    downloadUrl?: string;
+    fileUrl?: string;
+    uri?: string;
+    previewUrl?: string;
+  }) => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onToggleVoiceInput: () => void | Promise<void>;
   onSendMessage: () => void;
@@ -63,6 +78,7 @@ export function TaskDetailScreen({
 }) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const [isMediaManagerOpen, setIsMediaManagerOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -191,13 +207,14 @@ export function TaskDetailScreen({
           value={input}
           onChangeText={onChangeInput}
           attachments={pendingAttachments}
+          imageAuthToken={bearerToken}
           availableModels={AVAILABLE_MODELS}
           selectedModel={selectedModel}
           onSelectModel={onSelectModel}
           availableReasoningEfforts={AVAILABLE_REASONING_EFFORTS}
           selectedReasoningEffort={selectedReasoningEffort}
           onSelectReasoningEffort={onSelectReasoningEffort}
-          onAddAttachment={onAddAttachment}
+          onAddAttachment={() => setIsMediaManagerOpen(true)}
           onRemoveAttachment={onRemoveAttachment}
           isRecording={isRecordingAudio}
           isTranscribingAudio={isTranscribingAudio}
@@ -205,6 +222,18 @@ export function TaskDetailScreen({
           onToggleVoiceInput={onToggleVoiceInput}
           onSend={onSendMessage}
           disabled={isStreaming}
+        />
+        <MediaManagerModal
+          visible={isMediaManagerOpen}
+          theme={theme}
+          baseUrl={baseUrl}
+          bearerToken={bearerToken}
+          onClose={() => setIsMediaManagerOpen(false)}
+          onSelectMedia={onAddExistingMediaAttachment}
+          onUploadNew={async () => {
+            setIsMediaManagerOpen(false);
+            await onAddAttachment();
+          }}
         />
       </View>
     </KeyboardAvoidingView>

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Image } from 'react-native';
 import type { AppTheme } from '../theme/tokens';
-import type { PendingImageAttachment } from '../hooks/useRelayChat';
+import type { PendingAttachment } from '../hooks/useRelayChat';
 import type { ReasoningEffort } from '../types';
 
 function formatVoiceDuration(durationMillis: number) {
@@ -35,6 +35,7 @@ export function Composer({
   value,
   onChangeText,
   attachments,
+  imageAuthToken,
   availableModels,
   selectedModel,
   onSelectModel,
@@ -54,7 +55,8 @@ export function Composer({
   placeholder: string;
   value: string;
   onChangeText: (value: string) => void;
-  attachments?: PendingImageAttachment[];
+  attachments?: PendingAttachment[];
+  imageAuthToken?: string;
   availableModels?: readonly string[];
   selectedModel?: string;
   onSelectModel?: (model: string) => void;
@@ -274,7 +276,37 @@ export function Composer({
         >
           {attachments.map((attachment) => (
             <View key={attachment.id} style={styles.attachmentCard}>
-              <Image source={{ uri: attachment.localUri }} style={styles.attachmentImage} />
+              {attachment.source === 'local' || attachment.localUri ? (
+                <Image
+                  source={{
+                    uri: attachment.source === 'local' ? attachment.localUri : attachment.localUri!,
+                    headers:
+                      attachment.source === 'remote' && imageAuthToken
+                        ? {
+                            Authorization: `Bearer ${imageAuthToken}`,
+                          }
+                        : undefined,
+                  }}
+                  style={styles.attachmentImage}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.remoteAttachmentPlaceholder,
+                    {
+                      backgroundColor: theme.colors.surfaceMuted,
+                    },
+                  ]}
+                >
+                  <Ionicons name="image-outline" size={18} color={theme.colors.textMuted} />
+                  <Text
+                    numberOfLines={2}
+                    style={[styles.remoteAttachmentLabel, { color: theme.colors.textMuted }]}
+                  >
+                    {attachment.fileName || 'Media'}
+                  </Text>
+                </View>
+              )}
               <Pressable
                 onPress={() => onRemoveAttachment?.(attachment.id)}
                 style={[styles.attachmentRemove, { backgroundColor: theme.colors.surface }]}
@@ -481,6 +513,20 @@ const styles = StyleSheet.create({
   attachmentImage: {
     width: '100%',
     height: '100%',
+  },
+  remoteAttachmentPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    gap: 6,
+  },
+  remoteAttachmentLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    textAlign: 'center',
+    fontWeight: '600',
   },
   attachmentRemove: {
     position: 'absolute',

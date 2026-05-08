@@ -25,11 +25,25 @@ type UseRelayChatOptions = {
 export type PendingImageAttachment = {
   id: string;
   type: 'image';
+  source: 'local';
   localUri: string;
   mimeType?: string;
   fileName?: string;
   base64: string;
 };
+
+export type PendingRemoteAttachment = {
+  id: string;
+  type: 'image';
+  source: 'remote';
+  uri: string;
+  relayUrl?: string;
+  localUri?: string;
+  mimeType?: string;
+  fileName?: string;
+};
+
+export type PendingAttachment = PendingImageAttachment | PendingRemoteAttachment;
 
 export const AVAILABLE_MODELS = [
   'gpt-5.5',
@@ -64,8 +78,29 @@ type RelayErrorInfo = {
   bodyJson?: unknown;
 };
 
+type RelayMediaItem = {
+  id?: string;
+  fileName?: string;
+  name?: string;
+  contentType?: string;
+  mimeType?: string;
+  downloadUrl?: string;
+  fileUrl?: string;
+  uri?: string;
+  previewUrl?: string;
+};
+
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildRelayEndpoint(baseUrl: string, path: string) {
+  const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+  const relayBaseUrl = normalizedBaseUrl.endsWith('/v1')
+    ? normalizedBaseUrl.slice(0, -3)
+    : normalizedBaseUrl;
+
+  return `${relayBaseUrl}${path}`;
 }
 
 function createOpenAIClient(config: AgentConfig, sessionId: string) {
@@ -204,7 +239,7 @@ async function requestFallbackCompletion(
     };
     logRelayError('chat completion fallback failed', {
       sessionId,
-      url: `${config.baseUrl}/v1/chat/completions`,
+    url: `${config.baseUrl}/v1/chat/completions`,
       requestMessageCount: messages.length,
       response: errorInfo,
     });
@@ -288,6 +323,7 @@ async function toPendingImageAttachment(
   return {
     id: createId('attachment'),
     type: 'image',
+    source: 'local',
     localUri: asset.uri,
     mimeType: asset.mimeType || 'image/jpeg',
     fileName: asset.fileName || asset.uri.split('/').pop() || 'image.jpg',
@@ -355,7 +391,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
-  const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 200);
@@ -467,6 +503,31 @@ export function useRelayChat(options: UseRelayChatOptions) {
     );
   }, []);
 
+  const addExistingMediaAttachment = useCallback((media: RelayMediaItem) => {
+    if (!media.id) {
+      return;
+    }
+
+    const mediaUri =
+      media.downloadUrl ||
+      media.uri ||
+      buildRelayEndpoint(options.config.baseUrl, `/v1/media/${encodeURIComponent(media.id)}/file`);
+
+    setPendingAttachments((current) => [
+      ...current,
+      {
+        id: createId('attachment-remote'),
+        type: 'image',
+        source: 'remote',
+        uri: mediaUri,
+        relayUrl: media.fileUrl || mediaUri,
+        localUri: media.previewUrl,
+        mimeType: media.contentType || media.mimeType || 'image/jpeg',
+        fileName: media.fileName || media.name || media.id,
+      },
+    ]);
+  }, [options.config.baseUrl]);
+
   const startVoiceInput = useCallback(async () => {
     if (isStreaming || isTranscribingAudio || recorderState.isRecording) {
       return;
@@ -561,7 +622,21 @@ export function useRelayChat(options: UseRelayChatOptions) {
 
       if (hasAttachments) {
         uploadedAttachments = await Promise.all(
-          pendingAttachments.map((attachment) => uploadAttachment(options.config, attachment)),
+          pendingAttachments.map(async (attachment) => {
+            if (attachment.source === 'remote') {
+              return {
+                id: attachment.id,
+                type: 'image' as const,
+                uri: attachment.uri,
+                relayUrl: attachment.relayUrl || attachment.uri,
+                previewUri: attachment.localUri,
+                mimeType: attachment.mimeType,
+                fileName: attachment.fileName,
+              };
+            }
+
+            return uploadAttachment(options.config, attachment);
+          }),
         );
       }
 
@@ -697,6 +772,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
 
   return {
     addImageAttachment,
+    addExistingMediaAttachment,
     hasLoadedHistory,
     input,
     isRecordingAudio: recorderState.isRecording,

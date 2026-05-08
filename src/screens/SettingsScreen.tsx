@@ -1,7 +1,6 @@
 import BottomSheet, {
   BottomSheetBackdrop,
   BottomSheetScrollView,
-  BottomSheetView,
 } from '@gorhom/bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +37,59 @@ type UsageResponse = {
     secondary?: UsageWindow;
   };
   sessions?: UsageSession[];
+};
+
+type RelaySession = {
+  sessionId?: string;
+  id?: string;
+  name?: string | null;
+  updatedAt?: string;
+  createdAt?: string;
+  metadata?: Record<string, unknown> | null;
+};
+
+type RelayJob = {
+  id?: string;
+  jobId?: string;
+  status?: string;
+  route?: string;
+  createdAt?: string;
+};
+
+type RelayEvent = {
+  id?: string;
+  type?: string;
+  createdAt?: string;
+  sessionId?: string;
+  jobId?: string;
+};
+
+type RelaySkill = {
+  id?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+};
+
+type RelayCommand = {
+  id?: string;
+  command?: string;
+  description?: string;
+};
+
+type RelayDirectoryResponse<T> = {
+  items?: T[];
+  data?: T[];
+  sessions?: T[];
+  jobs?: T[];
+  events?: T[];
+  skills?: T[];
+  commands?: T[];
+};
+
+type CommandResultState = {
+  command: string;
+  output: string;
 };
 
 function formatResetTime(unixSeconds?: number) {
@@ -77,6 +129,40 @@ function formatCompactNumber(value: number) {
     notation: 'compact',
     maximumFractionDigits: value >= 1000 ? 1 : 0,
   }).format(value);
+}
+
+function getRelayItems<T>(payload: RelayDirectoryResponse<T> | T[] | null | undefined, key: keyof RelayDirectoryResponse<T>): T[] {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  return payload[key] || payload.items || payload.data || [];
+}
+
+async function fetchRelayJson<T>(
+  baseUrl: string,
+  bearerToken: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${bearerToken}`,
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Relay request failed (${response.status})`);
+  }
+
+  return (await response.json()) as T;
 }
 
 function UsageMeter({
@@ -122,6 +208,8 @@ export function SettingsScreen({
   theme,
   mode,
   onOpenConfig,
+  onOpenSkills,
+  onOpenConnectors,
   onSetMode,
   onClose,
 }: {
@@ -130,6 +218,8 @@ export function SettingsScreen({
   theme: AppTheme;
   mode: ThemeMode;
   onOpenConfig: () => void;
+  onOpenSkills: () => void;
+  onOpenConnectors: () => void;
   onSetMode: (mode: ThemeMode) => void;
   onClose: () => void;
 }) {
@@ -139,6 +229,9 @@ export function SettingsScreen({
   const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [isLoadingUsage, setIsLoadingUsage] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [skills, setSkills] = useState<RelaySkill[]>([]);
+  const [isLoadingRelay, setIsLoadingRelay] = useState(false);
+  const [relayError, setRelayError] = useState<string | null>(null);
 
   const handleSheetChanges = useCallback(
     (index: number) => {
@@ -212,6 +305,35 @@ export function SettingsScreen({
     void loadUsage(true);
   }, [loadUsage]);
 
+  const loadRelayResources = useCallback(async () => {
+    if (!baseUrl.trim() || !bearerToken.trim()) {
+      setRelayError('Relay is not configured.');
+      return;
+    }
+
+    setIsLoadingRelay(true);
+    setRelayError(null);
+
+    try {
+      const [skillsPayload] =
+        await Promise.all([
+          fetchRelayJson<RelayDirectoryResponse<RelaySkill>>(baseUrl, bearerToken, '/v1/skills'),
+        ]);
+
+      setSkills(getRelayItems(skillsPayload, 'skills').slice(0, 4));
+    } catch (error) {
+      setRelayError(
+        error instanceof Error ? error.message : 'Unable to load relay resources right now.',
+      );
+    } finally {
+      setIsLoadingRelay(false);
+    }
+  }, [baseUrl, bearerToken]);
+
+  useEffect(() => {
+    void loadRelayResources();
+  }, [loadRelayResources]);
+
   const sessionsWithUsage = usage?.sessions?.filter((session) => session.lastTokenUsage?.total)
     ?? [];
   const totalTrackedTokens = sessionsWithUsage.reduce(
@@ -235,6 +357,7 @@ export function SettingsScreen({
         backgroundStyle={[styles.sheetBackground, { backgroundColor: theme.colors.background }]}
       >
         <BottomSheetScrollView
+          style={styles.scrollView}
           contentContainerStyle={[
             styles.scrollContent,
             {
@@ -243,8 +366,9 @@ export function SettingsScreen({
             },
           ]}
           showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
         >
-          <BottomSheetView>
+          <View style={styles.contentInner}>
             <View style={styles.sheetHeader}>
               <Text style={[styles.sheetTitle, { color: theme.colors.text }]}>Settings</Text>
               <IconButton theme={theme} icon="close" onPress={() => bottomSheetRef.current?.close()} />
@@ -381,8 +505,32 @@ export function SettingsScreen({
                 value={usage?.source || (isLoadingUsage ? 'Loading' : 'Unavailable')}
                 onPress={() => void loadUsage()}
               />
+              <SettingsRow
+                theme={theme}
+                label="Skills"
+                value={`${skills.length}`}
+                onPress={onOpenSkills}
+              />
+              <SettingsRow
+                theme={theme}
+                label="Connectors"
+                value="Open"
+                onPress={onOpenConnectors}
+              />
+              <SettingsRow
+                theme={theme}
+                label="Relay Skills Sync"
+                value={
+                  relayError
+                    ? 'Unavailable'
+                    : isLoadingRelay
+                      ? 'Loading'
+                      : `${skills.length}`
+                }
+                onPress={() => void loadRelayResources()}
+              />
             </View>
-          </BottomSheetView>
+          </View>
         </BottomSheetScrollView>
       </BottomSheet>
     </View>
@@ -403,8 +551,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 34,
     padding: 32
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     paddingHorizontal: 28,
+    flexGrow: 1,
+  },
+  contentInner: {
+    paddingBottom: 8,
   },
   sheetHeader: {
     flexDirection: 'row',

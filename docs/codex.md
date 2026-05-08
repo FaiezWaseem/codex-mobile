@@ -21,15 +21,41 @@ File path:
 
 - `GET /health`
 - `GET /v1/status`
+- `GET /v1/events`
 - `GET /v1/usage`
 - `GET /v1/models`
 - `GET /v1/docs`
+- `GET /v1/commands`
+- `POST /v1/commands/execute`
+- `GET /v1/skills`
+- `GET /v1/connectors`
+- `GET /v1/approvals`
+- `GET /v1/approvals/:requestId`
+- `GET /v1/jobs`
+- `GET /v1/jobs/:jobId`
+- `GET /v1/jobs/:jobId/result`
+- `GET /v1/jobs/:jobId/events`
+- `POST /v1/jobs`
+- `POST /v1/jobs/:jobId/cancel`
+- `POST /v1/jobs/:jobId/retry`
+- `GET /v1/sessions`
+- `POST /v1/sessions`
+- `GET /v1/sessions/:sessionId`
+- `PATCH /v1/sessions/:sessionId`
+- `POST /v1/sessions/:sessionId/fork`
+- `POST /v1/sessions/:sessionId/summarize`
+- `POST /v1/sessions/:sessionId/clear`
 - `GET /v1/sessions/:sessionId/history`
 - `GET /v1/image/:jobId`
 - `GET /v1/image/:jobId/file`
 - `GET /v1/uploads`
 - `GET /v1/uploads/:uploadId`
 - `GET /v1/uploads/:uploadId/file`
+- `DELETE /v1/uploads/:uploadId`
+- `GET /v1/media`
+- `GET /v1/media/:mediaId`
+- `GET /v1/media/:mediaId/file`
+- `DELETE /v1/media/:mediaId`
 - `POST /v1/chat`
 - `POST /v1/image`
 - `POST /v1/uploads`
@@ -48,11 +74,181 @@ File path:
 - For OpenAI-compatible routes, `x-session-id`, `sessionId`, `metadata.sessionId`, or `user` can drive reuse.
 - Default execution mode is `danger-full-access`, so the relay should not normally pause for approval prompts.
 
+Session management routes now include:
+
+- `GET /v1/sessions`
+- `POST /v1/sessions`
+- `GET /v1/sessions/:sessionId`
+- `PATCH /v1/sessions/:sessionId`
+- `POST /v1/sessions/:sessionId/fork`
+- `POST /v1/sessions/:sessionId/summarize`
+- `POST /v1/sessions/:sessionId/clear`
+- `DELETE /v1/sessions/:sessionId`
+
 Session message history is also stored locally in the relay database and can be fetched with:
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:9856/v1/sessions/<session-id>/history
+```
+
+List sessions:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/sessions
+```
+
+Rename or add metadata:
+
+```bash
+curl -s -X PATCH http://127.0.0.1:9856/v1/sessions/demo-chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Demo Chat",
+    "metadata": {
+      "source": "mobile"
+    }
+  }'
+```
+
+Fork a session into a new relay session:
+
+```bash
+curl -s -X POST http://127.0.0.1:9856/v1/sessions/demo-chat/fork \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "demo-chat-fork"
+  }'
+```
+
+Clear a session while keeping its metadata entry:
+
+```bash
+curl -s -X POST http://127.0.0.1:9856/v1/sessions/demo-chat/clear \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Notifications and resumable SSE
+
+Use the replayable event stream for mobile reconnects. The relay accepts `Last-Event-ID` or `?lastEventId=...` and can filter by `sessionId`, `jobId`, or `category`.
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/events
+```
+
+Job-specific stream:
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/jobs/<job-id>/events
+```
+
+Typical event types include:
+
+- `job.created`
+- `job.updated`
+- `job.output.delta`
+- `job.completed`
+- `job.failed`
+- `approval.required`
+- `approval.resolved`
+- `session.updated`
+- `session.deleted`
+
+## Assistant jobs
+
+Use jobs for background mobile work instead of holding a request open.
+
+Create a background OpenAI-compatible chat job:
+
+```bash
+curl -s -X POST http://127.0.0.1:9856/v1/jobs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "route": "/v1/chat/completions",
+    "request": {
+      "sessionId": "job-demo",
+      "model": "gpt-5.4-mini",
+      "reasoningEffort": "medium",
+      "messages": [
+        {"role": "user", "content": "Write a short launch checklist."}
+      ]
+    }
+  }'
+```
+
+Inspect the job:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/jobs/<job-id>
+```
+
+Fetch the result:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/jobs/<job-id>/result
+```
+
+Cancel or retry:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/jobs/<job-id>/cancel
+
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/jobs/<job-id>/retry
+```
+
+## Structured commands, skills, and connectors
+
+Discovery routes:
+
+- `GET /v1/commands`
+- `GET /v1/skills`
+- `GET /v1/connectors`
+
+Execute structured relay commands:
+
+```bash
+curl -s -X POST http://127.0.0.1:9856/v1/commands/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "skills.list"
+  }'
+```
+
+Other built-in command ids:
+
+- `sessions.list`
+- `sessions.get`
+- `approvals.list`
+- `jobs.list`
+- `models.list`
+- `connectors.list`
+- `docs.get`
+
+## Approval queue
+
+List pending approvals:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/approvals
+```
+
+Fetch one approval:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/approvals/<request-id>
 ```
 
 ## Async image jobs
@@ -144,6 +340,29 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 curl -L -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:9856/v1/uploads/<upload-id>/file
+```
+
+You can also manage the same stored uploads through the media endpoints, which are intended for mobile file galleries and manual cleanup:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/media
+
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/media/<media-id>
+
+curl -L -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/media/<media-id>/file
+
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/media/<media-id>
+```
+
+The upload route also supports direct deletion:
+
+```bash
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9856/v1/uploads/<upload-id>
 ```
 
 ## Model switching

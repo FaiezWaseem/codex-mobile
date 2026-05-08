@@ -6,6 +6,8 @@ export type RootStackParamList = {
   Tasks: undefined;
   TaskDetail: { taskId: string };
   Settings: undefined;
+  Skills: undefined;
+  Connectors: undefined;
 };
 
 export type RootScreenProps<T extends keyof RootStackParamList> = NativeStackScreenProps<

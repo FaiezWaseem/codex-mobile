@@ -7,6 +7,8 @@ export const routeNames = {
   tasks: 'Tasks',
   taskDetail: 'TaskDetail',
   settings: 'Settings',
+  skills: 'Skills',
+  connectors: 'Connectors',
 } as const;
 
 type RouteTuple<T extends keyof RootStackParamList> = RootStackParamList[T] extends undefined
@@ -23,6 +25,8 @@ export const appRoutes = {
     { taskId },
   ],
   settings: (): RouteTuple<'Settings'> => [routeNames.settings],
+  skills: (): RouteTuple<'Skills'> => [routeNames.skills],
+  connectors: (): RouteTuple<'Connectors'> => [routeNames.connectors],
 };
 
 export function navigateTo<T extends keyof RootStackParamList>(

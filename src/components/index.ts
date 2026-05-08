@@ -2,6 +2,7 @@ export { CapabilityChip } from './CapabilityChip';
 export { ChatMessageBubble } from './ChatMessageBubble';
 export { Composer } from './Composer';
 export { IconButton } from './IconButton';
+export { MediaManagerModal } from './MediaManagerModal';
 export { ProfileCard } from './ProfileCard';
 export { Screen } from './Screen';
 export { SettingsRow } from './SettingsRow';

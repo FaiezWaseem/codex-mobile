@@ -7,6 +7,8 @@ import { useRelayChat } from '../hooks/useRelayChat';
 import { tasks } from '../data/mock';
 import { HomeScreen } from '../screens/HomeScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { SkillsScreen } from '../screens/SkillsScreen';
+import { ConnectorsScreen } from '../screens/ConnectorsScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { TaskDetailScreen } from '../screens/TaskDetailScreen';
 import { TasksScreen } from '../screens/TasksScreen';
@@ -93,6 +95,7 @@ function HomeRoute({
       theme={theme}
       onOpenTasks={() => navigateTo(navigation, appRoutes.tasks())}
       onOpenSettings={() => navigateTo(navigation, appRoutes.settings())}
+      baseUrl={config?.baseUrl || ''}
       input={chat.input}
       pendingAttachments={chat.pendingAttachments}
       bearerToken={config?.bearerToken || ''}
@@ -106,6 +109,7 @@ function HomeRoute({
       onSelectModel={(model) => void saveConfig({ ...config!, model })}
       onSelectReasoningEffort={(reasoningEffort) => void saveConfig({ ...config!, reasoningEffort })}
       onAddAttachment={chat.addImageAttachment}
+      onAddExistingMediaAttachment={chat.addExistingMediaAttachment}
       onRemoveAttachment={chat.removeAttachment}
       onToggleVoiceInput={chat.toggleVoiceInput}
       onSendMessage={chat.sendMessage}
@@ -164,6 +168,7 @@ function TaskDetailRoute({
       theme={theme}
       task={activeTask}
       onBack={() => navigation.goBack()}
+      baseUrl={config?.baseUrl || ''}
       input={chat.input}
       pendingAttachments={chat.pendingAttachments}
       bearerToken={config?.bearerToken || ''}
@@ -177,6 +182,7 @@ function TaskDetailRoute({
       onSelectModel={(model) => void saveConfig({ ...config!, model })}
       onSelectReasoningEffort={(reasoningEffort) => void saveConfig({ ...config!, reasoningEffort })}
       onAddAttachment={chat.addImageAttachment}
+      onAddExistingMediaAttachment={chat.addExistingMediaAttachment}
       onRemoveAttachment={chat.removeAttachment}
       onToggleVoiceInput={chat.toggleVoiceInput}
       onSendMessage={chat.sendMessage}
@@ -200,8 +206,40 @@ function SettingsRoute({
       theme={theme}
       mode={mode}
       onOpenConfig={() => navigateTo(navigation, appRoutes.config(false))}
+      onOpenSkills={() => navigateTo(navigation, appRoutes.skills())}
+      onOpenConnectors={() => navigateTo(navigation, appRoutes.connectors())}
       onSetMode={setMode}
       onClose={() => safeGoBack(navigation)}
+    />
+  );
+}
+
+function SkillsRoute({
+  navigation,
+  config,
+  theme,
+}: RootScreenProps<'Skills'> & Pick<NavigatorProps, 'config' | 'theme'>) {
+  return (
+    <SkillsScreen
+      theme={theme}
+      baseUrl={config?.baseUrl || ''}
+      bearerToken={config?.bearerToken || ''}
+      onBack={() => navigation.goBack()}
+    />
+  );
+}
+
+function ConnectorsRoute({
+  navigation,
+  config,
+  theme,
+}: RootScreenProps<'Connectors'> & Pick<NavigatorProps, 'config' | 'theme'>) {
+  return (
+    <ConnectorsScreen
+      theme={theme}
+      baseUrl={config?.baseUrl || ''}
+      bearerToken={config?.bearerToken || ''}
+      onBack={() => navigation.goBack()}
     />
   );
 }
@@ -293,6 +331,12 @@ export function AppNavigator({
               setMode={setMode}
             />
           )}
+        </Stack.Screen>
+        <Stack.Screen name={routeNames.skills}>
+          {(props) => <SkillsRoute {...props} config={config} theme={theme} />}
+        </Stack.Screen>
+        <Stack.Screen name={routeNames.connectors}>
+          {(props) => <ConnectorsRoute {...props} config={config} theme={theme} />}
         </Stack.Screen>
       </Stack.Navigator>
     </NavigationContainer>
