@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -270,6 +271,30 @@ async function uploadAttachment(
   };
 }
 
+async function toPendingImageAttachment(
+  asset: ImagePicker.ImagePickerAsset,
+): Promise<PendingImageAttachment | null> {
+  const base64 =
+    typeof asset.base64 === 'string' && asset.base64.length > 0
+      ? asset.base64
+      : await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+  if (!base64) {
+    return null;
+  }
+
+  return {
+    id: createId('attachment'),
+    type: 'image',
+    localUri: asset.uri,
+    mimeType: asset.mimeType || 'image/jpeg',
+    fileName: asset.fileName || asset.uri.split('/').pop() || 'image.jpg',
+    base64,
+  };
+}
+
 async function transcribeAudio(
   config: AgentConfig,
   audioUri: string,
@@ -429,16 +454,9 @@ export function useRelayChat(options: UseRelayChatOptions) {
       return;
     }
 
-    const nextAttachments = result.assets
-      .filter((asset) => typeof asset.base64 === 'string' && asset.base64.length > 0)
-      .map<PendingImageAttachment>((asset) => ({
-        id: createId('attachment'),
-        type: 'image',
-        localUri: asset.uri,
-        mimeType: asset.mimeType || 'image/jpeg',
-        fileName: asset.fileName || asset.uri.split('/').pop() || 'image.jpg',
-        base64: asset.base64 as string,
-      }));
+    const nextAttachments = (await Promise.all(
+      result.assets.map((asset) => toPendingImageAttachment(asset)),
+    )).filter((attachment): attachment is PendingImageAttachment => Boolean(attachment));
 
     setPendingAttachments((current) => [...current, ...nextAttachments]);
   }, [isStreaming]);
