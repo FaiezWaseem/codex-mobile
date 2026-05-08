@@ -1,7 +1,7 @@
 import BottomSheet, { BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, type ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { Pressable, StyleSheet, Text, View, Image, useWindowDimensions } from 'react-native';
 import type { AppTheme } from '../theme/tokens';
 
 function shouldAttachAuthHeaders(uri: string | undefined, token: string | undefined) {
@@ -24,6 +24,7 @@ export function ImagePreviewSheet({
   onClose: () => void;
 }) {
   const snapPoints = useMemo(() => ['94%'], []);
+  const { height: windowHeight } = useWindowDimensions();
 
   const renderBackdrop = useCallback(
     (props: ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -43,7 +44,7 @@ export function ImagePreviewSheet({
   }
 
   return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+    <View pointerEvents="box-none" style={styles.overlayHost}>
       <BottomSheet
         index={0}
         snapPoints={snapPoints}
@@ -83,6 +84,7 @@ export function ImagePreviewSheet({
           <View
             style={[
               styles.imageFrame,
+              { minHeight: Math.max(320, windowHeight * 0.68) },
               {
                 backgroundColor: theme.colors.surface,
                 borderColor: theme.colors.border,
@@ -111,6 +113,11 @@ export function ImagePreviewSheet({
 }
 
 const styles = StyleSheet.create({
+  overlayHost: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    elevation: 100,
+  },
   sheet: {
     flex: 1,
     borderTopLeftRadius: 30,

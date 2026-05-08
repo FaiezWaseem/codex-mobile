@@ -67,7 +67,7 @@ export function MessageActionsSheet({
   }
 
   return (
-    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+    <View pointerEvents="box-none" style={styles.overlayHost}>
       <BottomSheet
         index={0}
         snapPoints={snapPoints}
@@ -118,6 +118,11 @@ export function MessageActionsSheet({
 }
 
 const styles = StyleSheet.create({
+  overlayHost: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    elevation: 100,
+  },
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
