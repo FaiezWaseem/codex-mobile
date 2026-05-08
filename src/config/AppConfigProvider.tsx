@@ -27,6 +27,7 @@ function normalizeConfig(config: AgentConfig): AgentConfig {
     baseUrl: config.baseUrl.trim().replace(/\/+$/, ''),
     bearerToken: config.bearerToken.trim(),
     model: config.model?.trim() || 'gpt-5.4-mini',
+    reasoningEffort: config.reasoningEffort || 'medium',
   };
 }
 

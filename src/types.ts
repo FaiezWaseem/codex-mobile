@@ -1,9 +1,11 @@
 export type ThemeMode = 'system' | 'light' | 'dark';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 
 export type AgentConfig = {
   baseUrl: string;
   bearerToken: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type WorkspaceMode = 'MTC' | 'Code';

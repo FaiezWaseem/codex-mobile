@@ -1,9 +1,17 @@
 import * as ImagePicker from 'expo-image-picker';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
 import { fetch as expoFetch } from 'expo/fetch';
 import OpenAI from 'openai/index';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import { loadChatMessages, saveChatMessages } from '../storage/chatDb';
-import type { AgentConfig, ChatAttachment, ChatMessage } from '../types';
+import type { AgentConfig, ChatAttachment, ChatMessage, ReasoningEffort } from '../types';
 
 type UseRelayChatOptions = {
   assistantName?: string;
@@ -28,6 +36,13 @@ export const AVAILABLE_MODELS = [
   'gpt-5.4-mini',
   'gpt-5.3-codex',
   'gpt-5.2',
+] as const;
+
+export const AVAILABLE_REASONING_EFFORTS: readonly ReasoningEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
 ] as const;
 
 type RelayContentPart =
@@ -173,6 +188,7 @@ async function requestFallbackCompletion(
   try {
     const response = await client.chat.completions.create({
       model: config.model || 'gpt-5.4-mini',
+      reasoning_effort: config.reasoningEffort || 'medium',
       messages: messages as OpenAIMessage[],
       stream: false,
     });
@@ -254,12 +270,70 @@ async function uploadAttachment(
   };
 }
 
+async function transcribeAudio(
+  config: AgentConfig,
+  audioUri: string,
+  sessionId: string,
+): Promise<string> {
+  const candidateModels = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'];
+  let lastError: Error | null = null;
+
+  for (const model of candidateModels) {
+    try {
+      const formData = new FormData();
+      formData.append('model', model);
+      formData.append('response_format', 'json');
+      formData.append(
+        'file',
+        {
+          uri: audioUri,
+          name: `voice-note-${Date.now()}.m4a`,
+          type: 'audio/mp4',
+        } as never,
+      );
+
+      const response = await fetch(`${config.baseUrl}/v1/audio/transcriptions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.bearerToken}`,
+          'x-session-id': sessionId,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorInfo = await readRelayError(response);
+        lastError = new Error(
+          extractRelayErrorMessage(errorInfo) || `Transcription failed (${response.status})`,
+        );
+        continue;
+      }
+
+      const payload = (await response.json()) as { text?: string };
+      const transcript = payload.text?.trim();
+
+      if (transcript) {
+        return transcript;
+      }
+
+      throw new Error('Voice transcription returned empty text.');
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Voice transcription failed.');
+    }
+  }
+
+  throw lastError ?? new Error('Voice transcription failed.');
+}
+
 export function useRelayChat(options: UseRelayChatOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>(options.initialMessages ?? []);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingImageAttachment[]>([]);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder, 200);
   const abortRef = useRef<AbortController | null>(null);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestMessagesRef = useRef<ChatMessage[]>(options.initialMessages ?? []);
@@ -375,6 +449,84 @@ export function useRelayChat(options: UseRelayChatOptions) {
     );
   }, []);
 
+  const startVoiceInput = useCallback(async () => {
+    if (isStreaming || isTranscribingAudio || recorderState.isRecording) {
+      return;
+    }
+
+    const permission = await requestRecordingPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Microphone permission needed', 'Enable microphone access to dictate messages.');
+      return;
+    }
+
+    try {
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false,
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to start recording right now.';
+      Alert.alert('Recording failed', message);
+    }
+  }, [audioRecorder, isStreaming, isTranscribingAudio, recorderState.isRecording]);
+
+  const stopVoiceInput = useCallback(async () => {
+    if (!recorderState.isRecording) {
+      return;
+    }
+
+    try {
+      await audioRecorder.stop();
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false,
+      });
+
+      const audioUri = audioRecorder.uri;
+
+      if (!audioUri) {
+        throw new Error('No recorded audio file was produced.');
+      }
+
+      setIsTranscribingAudio(true);
+      const transcript = await transcribeAudio(options.config, audioUri, options.sessionId);
+
+      setInput((current) => {
+        const trimmedCurrent = current.trim();
+
+        if (!trimmedCurrent) {
+          return transcript;
+        }
+
+        return `${trimmedCurrent} ${transcript}`;
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to transcribe that recording right now.';
+      Alert.alert('Voice input failed', message);
+    } finally {
+      setIsTranscribingAudio(false);
+    }
+  }, [audioRecorder, options.config, options.sessionId, recorderState.isRecording]);
+
+  const toggleVoiceInput = useCallback(async () => {
+    if (recorderState.isRecording) {
+      await stopVoiceInput();
+      return;
+    }
+
+    await startVoiceInput();
+  }, [recorderState.isRecording, startVoiceInput, stopVoiceInput]);
+
   const sendMessage = useCallback(async () => {
     const trimmed = input.trim();
     const hasAttachments = pendingAttachments.length > 0;
@@ -426,6 +578,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
       const stream = await client.chat.completions.create(
         {
           model: options.config.model || 'gpt-5.4-mini',
+          reasoning_effort: options.config.reasoningEffort || 'medium',
           messages: relayMessages as OpenAIMessage[],
           stream: true,
         },
@@ -528,11 +681,15 @@ export function useRelayChat(options: UseRelayChatOptions) {
     addImageAttachment,
     hasLoadedHistory,
     input,
+    isRecordingAudio: recorderState.isRecording,
     isStreaming,
+    isTranscribingAudio,
     messages,
     pendingAttachments,
     removeAttachment,
     sendMessage,
     setInput,
+    toggleVoiceInput,
+    voiceDurationMillis: recorderState.durationMillis,
   };
 }

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Speech from 'expo-speech';
 import type { AppTheme } from '../theme/tokens';
 import type { ChatMessage } from '../types';
 
@@ -437,6 +438,16 @@ function formatMessageTime(createdAt: string) {
   });
 }
 
+function getElapsedSeconds(createdAt: string) {
+  const createdAtMs = new Date(createdAt).getTime();
+
+  if (Number.isNaN(createdAtMs)) {
+    return 1;
+  }
+
+  return Math.max(1, Math.floor((Date.now() - createdAtMs) / 1000));
+}
+
 export function ChatMessageBubble({
   theme,
   message,
@@ -448,12 +459,16 @@ export function ChatMessageBubble({
 }) {
   const isUser = message.role === 'user';
   const textColor = isUser ? '#FFFFFF' : theme.colors.text;
-  const content = message.content || (message.streaming ? '...' : '');
+  const hasStreamingPlaceholder = !isUser && message.streaming && !message.content.trim();
+  const content = message.content || '';
   const markdownBlocks = parseMarkdownBlocks(content);
   const [copied, setCopied] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [openedLinks, setOpenedLinks] = useState<string[]>([]);
   const [failedPreviewIds, setFailedPreviewIds] = useState<string[]>([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(() => getElapsedSeconds(message.createdAt));
   const timestamp = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
+  const isSpeakable = !isUser && !message.streaming && Boolean(content.trim());
 
   useEffect(() => {
     if (!copied) {
@@ -467,6 +482,20 @@ export function ChatMessageBubble({
     return () => clearTimeout(timeoutId);
   }, [copied]);
 
+  useEffect(() => {
+    if (!hasStreamingPlaceholder) {
+      return;
+    }
+
+    setElapsedSeconds(getElapsedSeconds(message.createdAt));
+
+    const intervalId = setInterval(() => {
+      setElapsedSeconds(getElapsedSeconds(message.createdAt));
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [hasStreamingPlaceholder, message.createdAt]);
+
   async function handleCopy() {
     if (!content.trim()) {
       return;
@@ -474,6 +503,29 @@ export function ChatMessageBubble({
 
     await Clipboard.setStringAsync(content);
     setCopied(true);
+  }
+
+  async function handleSpeak() {
+    if (!content.trim()) {
+      return;
+    }
+
+    if (isSpeaking || (await Speech.isSpeakingAsync())) {
+      await Speech.stop();
+      setIsSpeaking(false);
+      return;
+    }
+
+    const nextContent = content.slice(0, Speech.maxSpeechInputLength);
+
+    Speech.speak(nextContent, {
+      rate: 0.96,
+      pitch: 1,
+      onStart: () => setIsSpeaking(true),
+      onDone: () => setIsSpeaking(false),
+      onStopped: () => setIsSpeaking(false),
+      onError: () => setIsSpeaking(false),
+    });
   }
 
   async function handleOpenLink(href: string) {
@@ -547,11 +599,38 @@ export function ChatMessageBubble({
             })()}
           </Pressable>
         ))}
-        {renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink, openedLinks)}
+        {hasStreamingPlaceholder ? (
+          <View style={styles.thinkingWrap}>
+            <Text style={[styles.content, styles.thinkingText, { color: textColor }]}>
+              {`thinking est ${elapsedSeconds}s`}
+            </Text>
+            <Text style={[styles.thinkingMeta, { color: theme.colors.textMuted }]}>
+              {`${elapsedSeconds}s elapsed`}
+            </Text>
+          </View>
+        ) : (
+          renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink, openedLinks)
+        )}
       </View>
       <View style={[styles.footerRow, { alignSelf: isUser ? 'flex-end' : 'flex-start' }]}>
         {timestamp ? (
           <Text style={[styles.timestampText, { color: theme.colors.textMuted }]}>{timestamp}</Text>
+        ) : null}
+        {isSpeakable ? (
+          <Pressable
+            onPress={() => void handleSpeak()}
+            hitSlop={8}
+            style={styles.copyButton}
+          >
+            <Text
+              style={[
+                styles.copyButtonText,
+                { color: isSpeaking ? theme.colors.primary : theme.colors.textMuted },
+              ]}
+            >
+              {isSpeaking ? 'Stop' : 'Speak'}
+            </Text>
+          </Pressable>
         ) : null}
         <Pressable
           onPress={() => void handleCopy()}
@@ -585,6 +664,17 @@ const styles = StyleSheet.create({
   assistantBubble: {
     borderRadius: 24,
     borderBottomLeftRadius: 8,
+  },
+  thinkingWrap: {
+    gap: 2,
+  },
+  thinkingText: {
+    fontWeight: '700',
+    textTransform: 'lowercase',
+  },
+  thinkingMeta: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   content: {
     fontSize: 16,

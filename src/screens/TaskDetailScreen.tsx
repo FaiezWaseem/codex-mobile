@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatMessageBubble, Composer, IconButton } from '../components';
-import { AVAILABLE_MODELS } from '../hooks/useRelayChat';
+import { AVAILABLE_MODELS, AVAILABLE_REASONING_EFFORTS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
-import type { ChatMessage, Task } from '../types';
+import type { ChatMessage, ReasoningEffort, Task } from '../types';
 
 export function TaskDetailScreen({
   theme,
@@ -26,13 +26,19 @@ export function TaskDetailScreen({
   pendingAttachments,
   bearerToken,
   selectedModel,
+  selectedReasoningEffort,
+  isRecordingAudio,
   isStreaming,
+  isTranscribingAudio,
   messages,
   onChangeInput,
   onSelectModel,
+  onSelectReasoningEffort,
   onAddAttachment,
   onRemoveAttachment,
+  onToggleVoiceInput,
   onSendMessage,
+  voiceDurationMillis,
 }: {
   theme: AppTheme;
   task: Task;
@@ -41,13 +47,19 @@ export function TaskDetailScreen({
   pendingAttachments: Parameters<typeof Composer>[0]['attachments'];
   bearerToken: string;
   selectedModel: string;
+  selectedReasoningEffort: ReasoningEffort;
+  isRecordingAudio: boolean;
   isStreaming: boolean;
+  isTranscribingAudio: boolean;
   messages: ChatMessage[];
   onChangeInput: (value: string) => void;
   onSelectModel: (model: string) => void;
+  onSelectReasoningEffort: (reasoningEffort: ReasoningEffort) => void;
   onAddAttachment: () => void | Promise<void>;
   onRemoveAttachment: (attachmentId: string) => void;
+  onToggleVoiceInput: () => void | Promise<void>;
   onSendMessage: () => void;
+  voiceDurationMillis: number;
 }) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -182,8 +194,15 @@ export function TaskDetailScreen({
           availableModels={AVAILABLE_MODELS}
           selectedModel={selectedModel}
           onSelectModel={onSelectModel}
+          availableReasoningEfforts={AVAILABLE_REASONING_EFFORTS}
+          selectedReasoningEffort={selectedReasoningEffort}
+          onSelectReasoningEffort={onSelectReasoningEffort}
           onAddAttachment={onAddAttachment}
           onRemoveAttachment={onRemoveAttachment}
+          isRecording={isRecordingAudio}
+          isTranscribingAudio={isTranscribingAudio}
+          voiceDurationMillis={voiceDurationMillis}
+          onToggleVoiceInput={onToggleVoiceInput}
           onSend={onSendMessage}
           disabled={isStreaming}
         />

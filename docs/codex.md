@@ -153,6 +153,22 @@ Set `model` per request. Example values that worked on this relay:
 - `gpt-5.4-mini`
 - `codex-default` behavior when omitted on the local relay side
 
+## Reasoning effort
+
+Set `reasoningEffort` per request to control thinking level. Supported values:
+
+- `low`
+- `medium`
+- `high`
+- `xhigh`
+
+Accepted request aliases:
+
+- `reasoningEffort`
+- `reasoning_effort`
+- `thinking`
+- `reasoning.effort`
+
 ## Usage tracking
 
 The relay exposes Codex usage and reset windows here:
@@ -188,6 +204,7 @@ curl -s -X POST http://127.0.0.1:9856/v1/chat/completions \
   -H "x-session-id: demo-chat" \
   -d '{
     "model": "gpt-5.4-mini",
+    "reasoningEffort": "high",
     "messages": [
       {"role": "system", "content": "Be concise."},
       {"role": "user", "content": "Summarize the current repo."}

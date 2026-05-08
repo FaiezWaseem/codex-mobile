@@ -97,13 +97,19 @@ function HomeRoute({
       pendingAttachments={chat.pendingAttachments}
       bearerToken={config?.bearerToken || ''}
       selectedModel={config?.model || 'gpt-5.4-mini'}
+      selectedReasoningEffort={config?.reasoningEffort || 'medium'}
+      isRecordingAudio={chat.isRecordingAudio}
       isStreaming={chat.isStreaming}
+      isTranscribingAudio={chat.isTranscribingAudio}
       messages={chat.messages}
       onChangeInput={chat.setInput}
       onSelectModel={(model) => void saveConfig({ ...config!, model })}
+      onSelectReasoningEffort={(reasoningEffort) => void saveConfig({ ...config!, reasoningEffort })}
       onAddAttachment={chat.addImageAttachment}
       onRemoveAttachment={chat.removeAttachment}
+      onToggleVoiceInput={chat.toggleVoiceInput}
       onSendMessage={chat.sendMessage}
+      voiceDurationMillis={chat.voiceDurationMillis}
     />
   );
 }
@@ -162,13 +168,19 @@ function TaskDetailRoute({
       pendingAttachments={chat.pendingAttachments}
       bearerToken={config?.bearerToken || ''}
       selectedModel={config?.model || 'gpt-5.4-mini'}
+      selectedReasoningEffort={config?.reasoningEffort || 'medium'}
+      isRecordingAudio={chat.isRecordingAudio}
       isStreaming={chat.isStreaming}
+      isTranscribingAudio={chat.isTranscribingAudio}
       messages={chat.messages}
       onChangeInput={chat.setInput}
       onSelectModel={(model) => void saveConfig({ ...config!, model })}
+      onSelectReasoningEffort={(reasoningEffort) => void saveConfig({ ...config!, reasoningEffort })}
       onAddAttachment={chat.addImageAttachment}
       onRemoveAttachment={chat.removeAttachment}
+      onToggleVoiceInput={chat.toggleVoiceInput}
       onSendMessage={chat.sendMessage}
+      voiceDurationMillis={chat.voiceDurationMillis}
     />
   );
 }
