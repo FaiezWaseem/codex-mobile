@@ -3,7 +3,7 @@ import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Clipboard from 'expo-clipboard';
 import * as Speech from 'expo-speech';
 import type { AppTheme } from '../theme/tokens';
-import type { ChatMessage } from '../types';
+import type { ChatAttachment, ChatMessage } from '../types';
 
 type MarkdownBlock =
   | { type: 'paragraph'; lines: string[] }
@@ -456,10 +456,12 @@ export function ChatMessageBubble({
   theme,
   message,
   imageAuthToken,
+  onPreviewImage,
 }: {
   theme: AppTheme;
   message: ChatMessage;
   imageAuthToken?: string;
+  onPreviewImage?: (image: { uri: string; title?: string }) => void;
 }) {
   const isUser = message.role === 'user';
   const textColor = isUser ? '#FFFFFF' : theme.colors.text;
@@ -543,6 +545,23 @@ export function ChatMessageBubble({
     setOpenedLinks((current) => (current.includes(href) ? current : [...current, href]));
   }
 
+  function handlePreviewAttachment(attachment: ChatAttachment) {
+    const imageUri =
+      attachment.previewUri && !failedPreviewIds.includes(attachment.id)
+        ? attachment.previewUri
+        : attachment.uri;
+
+    if (onPreviewImage) {
+      onPreviewImage({
+        uri: imageUri,
+        title: attachment.fileName,
+      });
+      return;
+    }
+
+    void handleOpenLink(attachment.uri);
+  }
+
   return (
     <View
       style={[
@@ -565,7 +584,7 @@ export function ChatMessageBubble({
         {message.attachments?.map((attachment) => (
           <Pressable
             key={attachment.id}
-            onPress={() => void handleOpenLink(attachment.uri)}
+            onPress={() => handlePreviewAttachment(attachment)}
             style={styles.blockSpacing}
           >
             {(() => {

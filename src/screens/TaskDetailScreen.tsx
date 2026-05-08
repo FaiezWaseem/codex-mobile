@@ -14,7 +14,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatMessageBubble, Composer, IconButton, MediaManagerModal } from '../components';
+import {
+  ChatMessageBubble,
+  Composer,
+  IconButton,
+  ImagePreviewSheet,
+  MediaManagerModal,
+} from '../components';
 import { AVAILABLE_MODELS, AVAILABLE_REASONING_EFFORTS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
 import type { ChatMessage, ReasoningEffort, Task } from '../types';
@@ -79,6 +85,7 @@ export function TaskDetailScreen({
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const [isMediaManagerOpen, setIsMediaManagerOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ uri: string; title?: string } | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -173,6 +180,7 @@ export function TaskDetailScreen({
               theme={theme}
               message={message}
               imageAuthToken={bearerToken}
+              onPreviewImage={setPreviewImage}
             />
           ))}
           <Text style={[styles.chatHint, { color: theme.colors.textMuted }]}>
@@ -234,6 +242,14 @@ export function TaskDetailScreen({
             setIsMediaManagerOpen(false);
             await onAddAttachment();
           }}
+        />
+        <ImagePreviewSheet
+          visible={Boolean(previewImage)}
+          theme={theme}
+          imageUri={previewImage?.uri}
+          imageAuthToken={bearerToken}
+          title={previewImage?.title}
+          onClose={() => setPreviewImage(null)}
         />
       </View>
     </KeyboardAvoidingView>

@@ -14,7 +14,14 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CapabilityChip, ChatMessageBubble, Composer, IconButton, MediaManagerModal } from '../components';
+import {
+  CapabilityChip,
+  ChatMessageBubble,
+  Composer,
+  IconButton,
+  ImagePreviewSheet,
+  MediaManagerModal,
+} from '../components';
 import { capabilities, profile } from '../data/mock';
 import { AVAILABLE_MODELS, AVAILABLE_REASONING_EFFORTS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
@@ -80,6 +87,7 @@ export function HomeScreen({
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const [isMediaManagerOpen, setIsMediaManagerOpen] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ uri: string; title?: string } | null>(null);
   const isEmptyState = messages.length === 0;
 
   useEffect(() => {
@@ -151,6 +159,7 @@ export function HomeScreen({
                 theme={theme}
                 message={message}
                 imageAuthToken={bearerToken}
+                onPreviewImage={setPreviewImage}
               />
             ))}
           </View>
@@ -207,6 +216,14 @@ export function HomeScreen({
             setIsMediaManagerOpen(false);
             await onAddAttachment();
           }}
+        />
+        <ImagePreviewSheet
+          visible={Boolean(previewImage)}
+          theme={theme}
+          imageUri={previewImage?.uri}
+          imageAuthToken={bearerToken}
+          title={previewImage?.title}
+          onClose={() => setPreviewImage(null)}
         />
         {/* <View style={styles.footerRow}>
           <View style={styles.cloudTag}>

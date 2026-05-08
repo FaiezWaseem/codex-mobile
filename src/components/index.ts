@@ -1,6 +1,7 @@
 export { CapabilityChip } from './CapabilityChip';
 export { ChatMessageBubble } from './ChatMessageBubble';
 export { Composer } from './Composer';
+export { ImagePreviewSheet } from './ImagePreviewSheet';
 export { IconButton } from './IconButton';
 export { MediaManagerModal } from './MediaManagerModal';
 export { ProfileCard } from './ProfileCard';
