@@ -20,6 +20,7 @@ import {
   IconButton,
   ImagePreviewSheet,
   MediaManagerModal,
+  MessageActionsSheet,
 } from '../components';
 import { AVAILABLE_MODELS, AVAILABLE_REASONING_EFFORTS } from '../hooks/useRelayChat';
 import type { AppTheme } from '../theme/tokens';
@@ -45,6 +46,7 @@ export function TaskDetailScreen({
   onAddAttachment,
   onAddExistingMediaAttachment,
   onRemoveAttachment,
+  onDeleteMessage,
   onToggleVoiceInput,
   onSendMessage,
   voiceDurationMillis,
@@ -78,6 +80,7 @@ export function TaskDetailScreen({
     previewUrl?: string;
   }) => void;
   onRemoveAttachment: (attachmentId: string) => void;
+  onDeleteMessage: (messageId: string) => void;
   onToggleVoiceInput: () => void | Promise<void>;
   onSendMessage: () => void;
   voiceDurationMillis: number;
@@ -86,6 +89,7 @@ export function TaskDetailScreen({
   const scrollRef = useRef<ScrollView>(null);
   const [isMediaManagerOpen, setIsMediaManagerOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ uri: string; title?: string } | null>(null);
+  const [activeMessage, setActiveMessage] = useState<ChatMessage | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -181,6 +185,7 @@ export function TaskDetailScreen({
               message={message}
               imageAuthToken={bearerToken}
               onPreviewImage={setPreviewImage}
+              onOpenActions={setActiveMessage}
             />
           ))}
           <Text style={[styles.chatHint, { color: theme.colors.textMuted }]}>
@@ -243,15 +248,24 @@ export function TaskDetailScreen({
             await onAddAttachment();
           }}
         />
-        <ImagePreviewSheet
-          visible={Boolean(previewImage)}
-          theme={theme}
-          imageUri={previewImage?.uri}
-          imageAuthToken={bearerToken}
-          title={previewImage?.title}
-          onClose={() => setPreviewImage(null)}
-        />
       </View>
+      <ImagePreviewSheet
+        visible={Boolean(previewImage)}
+        theme={theme}
+        imageUri={previewImage?.uri}
+        imageAuthToken={bearerToken}
+        title={previewImage?.title}
+        onClose={() => setPreviewImage(null)}
+      />
+      <MessageActionsSheet
+        visible={Boolean(activeMessage)}
+        theme={theme}
+        messageId={activeMessage?.id}
+        content={activeMessage?.content}
+        attachments={activeMessage?.attachments}
+        onDeleteMessage={onDeleteMessage}
+        onClose={() => setActiveMessage(null)}
+      />
     </KeyboardAvoidingView>
   );
 }

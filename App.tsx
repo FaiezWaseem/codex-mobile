@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet } from 'react-native';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppConfigProvider } from './src/config/AppConfigProvider';
@@ -23,7 +24,9 @@ export default function App() {
       <ThemeProvider>
         <AppConfigProvider>
           <SafeAreaProvider>
-            <Root />
+            <BottomSheetModalProvider>
+              <Root />
+            </BottomSheetModalProvider>
           </SafeAreaProvider>
         </AppConfigProvider>
       </ThemeProvider>

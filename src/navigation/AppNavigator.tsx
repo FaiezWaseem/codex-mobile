@@ -111,6 +111,7 @@ function HomeRoute({
       onAddAttachment={chat.addImageAttachment}
       onAddExistingMediaAttachment={chat.addExistingMediaAttachment}
       onRemoveAttachment={chat.removeAttachment}
+      onDeleteMessage={chat.deleteMessage}
       onToggleVoiceInput={chat.toggleVoiceInput}
       onSendMessage={chat.sendMessage}
       voiceDurationMillis={chat.voiceDurationMillis}
@@ -184,6 +185,7 @@ function TaskDetailRoute({
       onAddAttachment={chat.addImageAttachment}
       onAddExistingMediaAttachment={chat.addExistingMediaAttachment}
       onRemoveAttachment={chat.removeAttachment}
+      onDeleteMessage={chat.deleteMessage}
       onToggleVoiceInput={chat.toggleVoiceInput}
       onSendMessage={chat.sendMessage}
       voiceDurationMillis={chat.voiceDurationMillis}

@@ -95,7 +95,12 @@ export function useMockChat(options?: UseMockChatOptions) {
     }, 28);
   }, [clearStream, input, isStreaming, options]);
 
+  const deleteMessage = useCallback((messageId: string) => {
+    setMessages((current) => current.filter((message) => message.id !== messageId));
+  }, []);
+
   return {
+    deleteMessage,
     input,
     isStreaming,
     messages,

@@ -503,6 +503,10 @@ export function useRelayChat(options: UseRelayChatOptions) {
     );
   }, []);
 
+  const deleteMessage = useCallback((messageId: string) => {
+    setMessages((current) => current.filter((message) => message.id !== messageId));
+  }, []);
+
   const addExistingMediaAttachment = useCallback((media: RelayMediaItem) => {
     if (!media.id) {
       return;
@@ -780,6 +784,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
     isTranscribingAudio,
     messages,
     pendingAttachments,
+    deleteMessage,
     removeAttachment,
     sendMessage,
     setInput,

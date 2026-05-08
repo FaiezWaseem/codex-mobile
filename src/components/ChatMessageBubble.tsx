@@ -457,11 +457,13 @@ export function ChatMessageBubble({
   message,
   imageAuthToken,
   onPreviewImage,
+  onOpenActions,
 }: {
   theme: AppTheme;
   message: ChatMessage;
   imageAuthToken?: string;
   onPreviewImage?: (image: { uri: string; title?: string }) => void;
+  onOpenActions?: (message: ChatMessage) => void;
 }) {
   const isUser = message.role === 'user';
   const textColor = isUser ? '#FFFFFF' : theme.colors.text;
@@ -571,16 +573,21 @@ export function ChatMessageBubble({
         },
       ]}
     >
-      <View
-        style={[
-          styles.bubble,
-          isUser ? styles.userBubble : styles.assistantBubble,
-          {
-            backgroundColor: isUser ? theme.colors.primary : theme.colors.surface,
-            borderColor: isUser ? theme.colors.primary : theme.colors.border,
-          },
-        ]}
+      <Pressable
+        delayLongPress={220}
+        onLongPress={() => onOpenActions?.(message)}
+        style={styles.bubblePressable}
       >
+        <View
+          style={[
+            styles.bubble,
+            isUser ? styles.userBubble : styles.assistantBubble,
+            {
+              backgroundColor: isUser ? theme.colors.primary : theme.colors.surface,
+              borderColor: isUser ? theme.colors.primary : theme.colors.border,
+            },
+          ]}
+        >
         {message.attachments?.map((attachment) => (
           <Pressable
             key={attachment.id}
@@ -634,7 +641,8 @@ export function ChatMessageBubble({
         ) : (
           renderMarkdownBlocks(markdownBlocks, textColor, theme, handleOpenLink, openedLinks)
         )}
-      </View>
+        </View>
+      </Pressable>
       <View style={[styles.footerRow, { alignSelf: isUser ? 'flex-end' : 'flex-start' }]}>
         {timestamp ? (
           <Text style={[styles.timestampText, { color: theme.colors.textMuted }]}>{timestamp}</Text>
@@ -679,6 +687,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 13,
+  },
+  bubblePressable: {
+    maxWidth: '100%',
   },
   userBubble: {
     borderRadius: 24,

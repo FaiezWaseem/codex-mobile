@@ -21,6 +21,7 @@ import {
   IconButton,
   ImagePreviewSheet,
   MediaManagerModal,
+  MessageActionsSheet,
 } from '../components';
 import { capabilities, profile } from '../data/mock';
 import { AVAILABLE_MODELS, AVAILABLE_REASONING_EFFORTS } from '../hooks/useRelayChat';
@@ -47,6 +48,7 @@ export function HomeScreen({
   onAddAttachment,
   onAddExistingMediaAttachment,
   onRemoveAttachment,
+  onDeleteMessage,
   onToggleVoiceInput,
   onSendMessage,
   voiceDurationMillis,
@@ -80,6 +82,7 @@ export function HomeScreen({
     previewUrl?: string;
   }) => void;
   onRemoveAttachment: (attachmentId: string) => void;
+  onDeleteMessage: (messageId: string) => void;
   onToggleVoiceInput: () => void | Promise<void>;
   onSendMessage: () => void;
   voiceDurationMillis: number;
@@ -88,6 +91,7 @@ export function HomeScreen({
   const scrollRef = useRef<ScrollView>(null);
   const [isMediaManagerOpen, setIsMediaManagerOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<{ uri: string; title?: string } | null>(null);
+  const [activeMessage, setActiveMessage] = useState<ChatMessage | null>(null);
   const isEmptyState = messages.length === 0;
 
   useEffect(() => {
@@ -160,6 +164,7 @@ export function HomeScreen({
                 message={message}
                 imageAuthToken={bearerToken}
                 onPreviewImage={setPreviewImage}
+                onOpenActions={setActiveMessage}
               />
             ))}
           </View>
@@ -217,14 +222,6 @@ export function HomeScreen({
             await onAddAttachment();
           }}
         />
-        <ImagePreviewSheet
-          visible={Boolean(previewImage)}
-          theme={theme}
-          imageUri={previewImage?.uri}
-          imageAuthToken={bearerToken}
-          title={previewImage?.title}
-          onClose={() => setPreviewImage(null)}
-        />
         {/* <View style={styles.footerRow}>
           <View style={styles.cloudTag}>
             <Ionicons name="cloud-outline" size={18} color={theme.colors.textMuted} />
@@ -235,6 +232,23 @@ export function HomeScreen({
           </Pressable>
         </View> */}
       </View>
+      <ImagePreviewSheet
+        visible={Boolean(previewImage)}
+        theme={theme}
+        imageUri={previewImage?.uri}
+        imageAuthToken={bearerToken}
+        title={previewImage?.title}
+        onClose={() => setPreviewImage(null)}
+      />
+      <MessageActionsSheet
+        visible={Boolean(activeMessage)}
+        theme={theme}
+        messageId={activeMessage?.id}
+        content={activeMessage?.content}
+        attachments={activeMessage?.attachments}
+        onDeleteMessage={onDeleteMessage}
+        onClose={() => setActiveMessage(null)}
+      />
     </KeyboardAvoidingView>
   );
 }

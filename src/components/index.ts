@@ -4,6 +4,7 @@ export { Composer } from './Composer';
 export { ImagePreviewSheet } from './ImagePreviewSheet';
 export { IconButton } from './IconButton';
 export { MediaManagerModal } from './MediaManagerModal';
+export { MessageActionsSheet } from './MessageActionsSheet';
 export { ProfileCard } from './ProfileCard';
 export { Screen } from './Screen';
 export { SettingsRow } from './SettingsRow';

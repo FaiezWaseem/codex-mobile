@@ -1,5 +1,7 @@
+import BottomSheet, { BottomSheetBackdrop, BottomSheetView } from '@gorhom/bottom-sheet';
 import { Ionicons } from '@expo/vector-icons';
-import { Modal, Pressable, StyleSheet, Text, View, Image } from 'react-native';
+import { useCallback, useMemo, type ComponentProps } from 'react';
+import { Pressable, StyleSheet, Text, View, Image } from 'react-native';
 import type { AppTheme } from '../theme/tokens';
 
 function shouldAttachAuthHeaders(uri: string | undefined, token: string | undefined) {
@@ -21,11 +23,38 @@ export function ImagePreviewSheet({
   title?: string;
   onClose: () => void;
 }) {
+  const snapPoints = useMemo(() => ['94%'], []);
+
+  const renderBackdrop = useCallback(
+    (props: ComponentProps<typeof BottomSheetBackdrop>) => (
+      <BottomSheetBackdrop
+        {...props}
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+        opacity={0.52}
+        pressBehavior="close"
+      />
+    ),
+    [],
+  );
+
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      <BottomSheet
+        index={0}
+        snapPoints={snapPoints}
+        onClose={onClose}
+        enablePanDownToClose
+        animateOnMount
+        backdropComponent={renderBackdrop}
+        handleIndicatorStyle={{ backgroundColor: theme.colors.textMuted }}
+        backgroundStyle={{ backgroundColor: theme.colors.background }}
+      >
+        <BottomSheetView
           style={[
             styles.sheet,
             {
@@ -75,26 +104,21 @@ export function ImagePreviewSheet({
               />
             ) : null}
           </View>
-        </View>
-      </View>
-    </Modal>
+        </BottomSheetView>
+      </BottomSheet>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    minHeight: '92%',
-    maxHeight: '96%',
+    flex: 1,
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     borderWidth: 1,
     borderBottomWidth: 0,
     paddingHorizontal: 20,
-    paddingTop: 18,
+    paddingTop: 8,
     paddingBottom: 22,
   },
   header: {
