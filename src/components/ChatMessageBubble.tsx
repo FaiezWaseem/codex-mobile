@@ -448,6 +448,10 @@ function getElapsedSeconds(createdAt: string) {
   return Math.max(1, Math.floor((Date.now() - createdAtMs) / 1000));
 }
 
+function shouldAttachAuthHeaders(uri: string | undefined, token: string | undefined) {
+  return Boolean(token && uri && /^https?:\/\//i.test(uri));
+}
+
 export function ChatMessageBubble({
   theme,
   message,
@@ -568,17 +572,17 @@ export function ChatMessageBubble({
               const usePreview = Boolean(
                 attachment.previewUri && !failedPreviewIds.includes(attachment.id),
               );
+              const imageUri = usePreview ? attachment.previewUri : attachment.uri;
 
               return (
             <Image
               source={{
-                uri: usePreview ? attachment.previewUri : attachment.uri,
-                headers:
-                  imageAuthToken && !usePreview
-                    ? {
-                        Authorization: `Bearer ${imageAuthToken}`,
-                      }
-                    : undefined,
+                uri: imageUri,
+                headers: shouldAttachAuthHeaders(imageUri, imageAuthToken)
+                  ? {
+                      Authorization: `Bearer ${imageAuthToken}`,
+                    }
+                  : undefined,
               }}
               onError={() => {
                 if (attachment.previewUri) {

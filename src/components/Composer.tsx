@@ -29,6 +29,10 @@ function formatReasoningLabel(reasoningEffort: ReasoningEffort) {
   return reasoningEffort.charAt(0).toUpperCase() + reasoningEffort.slice(1);
 }
 
+function shouldAttachAuthHeaders(uri: string | undefined, token: string | undefined) {
+  return Boolean(token && uri && /^https?:\/\//i.test(uri));
+}
+
 export function Composer({
   theme,
   placeholder,
@@ -276,16 +280,23 @@ export function Composer({
         >
           {attachments.map((attachment) => (
             <View key={attachment.id} style={styles.attachmentCard}>
-              {attachment.source === 'local' || attachment.localUri ? (
+              {attachment.source === 'local' || attachment.localUri || attachment.uri ? (
                 <Image
                   source={{
-                    uri: attachment.source === 'local' ? attachment.localUri : attachment.localUri!,
-                    headers:
-                      attachment.source === 'remote' && imageAuthToken
-                        ? {
-                            Authorization: `Bearer ${imageAuthToken}`,
-                          }
-                        : undefined,
+                    uri:
+                      attachment.source === 'local'
+                        ? attachment.localUri
+                        : attachment.localUri || attachment.uri,
+                    headers: shouldAttachAuthHeaders(
+                      attachment.source === 'local'
+                        ? attachment.localUri
+                        : attachment.localUri || attachment.uri,
+                      attachment.source === 'remote' ? imageAuthToken : undefined,
+                    )
+                      ? {
+                          Authorization: `Bearer ${imageAuthToken}`,
+                        }
+                      : undefined,
                   }}
                   style={styles.attachmentImage}
                 />

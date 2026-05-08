@@ -521,7 +521,7 @@ export function useRelayChat(options: UseRelayChatOptions) {
         source: 'remote',
         uri: mediaUri,
         relayUrl: media.fileUrl || mediaUri,
-        localUri: media.previewUrl,
+        localUri: media.downloadUrl || media.previewUrl || mediaUri,
         mimeType: media.contentType || media.mimeType || 'image/jpeg',
         fileName: media.fileName || media.name || media.id,
       },
