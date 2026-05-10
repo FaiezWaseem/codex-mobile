@@ -1,5 +1,10 @@
 import * as SQLite from 'expo-sqlite';
-import type { ChatMessage, ChatSessionSummary } from '../types';
+import type {
+  ChatExportBundle,
+  ChatMessage,
+  ChatSessionBackup,
+  ChatSessionSummary,
+} from '../types';
 
 const DATABASE_NAME = 'codex-chat.db';
 
@@ -25,6 +30,10 @@ type SessionRow = {
 type ChatSessionStateRow = {
   session_id: string;
   pending_job_id: string | null;
+};
+
+type SessionIdRow = {
+  session_id: string;
 };
 
 async function getDatabase() {
@@ -245,4 +254,57 @@ export async function listTaskSessions(): Promise<ChatSessionSummary[]> {
   );
 
   return summaries;
+}
+
+async function listStoredSessionIds(): Promise<string[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<SessionIdRow>(
+    `
+      SELECT session_id FROM chat_messages
+      UNION
+      SELECT session_id FROM chat_session_state
+      ORDER BY session_id ASC
+    `,
+  );
+
+  return rows.map((row) => row.session_id);
+}
+
+export async function exportChatSessions(): Promise<ChatExportBundle> {
+  const sessionIds = await listStoredSessionIds();
+  const sessions = await Promise.all(
+    sessionIds.map(async (sessionId) => {
+      const [messages, state] = await Promise.all([
+        loadChatMessages(sessionId),
+        loadChatSessionState(sessionId),
+      ]);
+
+      return {
+        sessionId,
+        pendingJobId: state.pendingJobId,
+        messages,
+      } satisfies ChatSessionBackup;
+    }),
+  );
+
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    app: 'codex-mobile',
+    sessions,
+  };
+}
+
+export async function importChatSessions(bundle: ChatExportBundle): Promise<number> {
+  let importedCount = 0;
+
+  for (const session of bundle.sessions) {
+    await saveChatMessages(session.sessionId, session.messages);
+    await saveChatSessionState(session.sessionId, {
+      pendingJobId: session.pendingJobId ?? null,
+    });
+    importedCount += 1;
+  }
+
+  return importedCount;
 }

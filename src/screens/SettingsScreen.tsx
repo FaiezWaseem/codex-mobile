@@ -3,12 +3,16 @@ import BottomSheet, {
   BottomSheetScrollView,
 } from '@gorhom/bottom-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconButton, SettingsRow } from '../components';
 import type { AppTheme } from '../theme/tokens';
-import type { ThemeMode } from '../types';
+import { exportChatSessions, importChatSessions } from '../storage/chatDb';
+import type { ChatExportBundle, ThemeMode } from '../types';
 
 const USAGE_CACHE_KEY = 'codex.usage-cache';
 
@@ -143,6 +147,20 @@ function getRelayItems<T>(payload: RelayDirectoryResponse<T> | T[] | null | unde
   return payload[key] || payload.items || payload.data || [];
 }
 
+function isChatExportBundle(value: unknown): value is ChatExportBundle {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<ChatExportBundle>;
+
+  return (
+    candidate.version === 1 &&
+    candidate.app === 'codex-mobile' &&
+    Array.isArray(candidate.sessions)
+  );
+}
+
 async function fetchRelayJson<T>(
   baseUrl: string,
   bearerToken: string,
@@ -232,6 +250,8 @@ export function SettingsScreen({
   const [skills, setSkills] = useState<RelaySkill[]>([]);
   const [isLoadingRelay, setIsLoadingRelay] = useState(false);
   const [relayError, setRelayError] = useState<string | null>(null);
+  const [isExportingChats, setIsExportingChats] = useState(false);
+  const [isImportingChats, setIsImportingChats] = useState(false);
 
   const handleSheetChanges = useCallback(
     (index: number) => {
@@ -333,6 +353,90 @@ export function SettingsScreen({
   useEffect(() => {
     void loadRelayResources();
   }, [loadRelayResources]);
+
+  const handleExportChats = useCallback(async () => {
+    if (isExportingChats) {
+      return;
+    }
+
+    setIsExportingChats(true);
+
+    try {
+      const bundle = await exportChatSessions();
+
+      if (!FileSystem.documentDirectory) {
+        throw new Error('Document storage is unavailable on this device.');
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileUri = `${FileSystem.documentDirectory}codex-chats-${timestamp}.json`;
+
+      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(bundle, null, 2), {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Export chats',
+          UTI: 'public.json',
+        });
+      } else {
+        Alert.alert('Chats exported', `Saved backup to:\n${fileUri}`);
+      }
+    } catch (error) {
+      Alert.alert(
+        'Export failed',
+        error instanceof Error ? error.message : 'Unable to export chats right now.',
+      );
+    } finally {
+      setIsExportingChats(false);
+    }
+  }, [isExportingChats]);
+
+  const handleImportChats = useCallback(async () => {
+    if (isImportingChats) {
+      return;
+    }
+
+    setIsImportingChats(true);
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const pickedFile = result.assets[0];
+      const contents = await FileSystem.readAsStringAsync(pickedFile.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      const parsed = JSON.parse(contents) as unknown;
+
+      if (!isChatExportBundle(parsed)) {
+        throw new Error('That file is not a valid Codex chat export.');
+      }
+
+      const importedCount = await importChatSessions(parsed);
+
+      Alert.alert(
+        'Chats imported',
+        importedCount === 1 ? 'Imported 1 chat thread.' : `Imported ${importedCount} chat threads.`,
+      );
+    } catch (error) {
+      Alert.alert(
+        'Import failed',
+        error instanceof Error ? error.message : 'Unable to import chats right now.',
+      );
+    } finally {
+      setIsImportingChats(false);
+    }
+  }, [isImportingChats]);
 
   const sessionsWithUsage = usage?.sessions?.filter((session) => session.lastTokenUsage?.total)
     ?? [];
@@ -516,6 +620,18 @@ export function SettingsScreen({
                 label="Connectors"
                 value="Open"
                 onPress={onOpenConnectors}
+              />
+              <SettingsRow
+                theme={theme}
+                label="Export Chats"
+                value={isExportingChats ? 'Working' : 'JSON backup'}
+                onPress={() => void handleExportChats()}
+              />
+              <SettingsRow
+                theme={theme}
+                label="Import Chats"
+                value={isImportingChats ? 'Working' : 'Restore backup'}
+                onPress={() => void handleImportChats()}
               />
               <SettingsRow
                 theme={theme}

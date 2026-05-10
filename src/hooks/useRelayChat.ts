@@ -757,26 +757,59 @@ async function uploadAttachment(
 async function toPendingImageAttachment(
   asset: ImagePicker.ImagePickerAsset,
 ): Promise<PendingImageAttachment | null> {
-  const base64 =
-    typeof asset.base64 === 'string' && asset.base64.length > 0
-      ? asset.base64
-      : await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+  let temporaryReadableUri: string | null = null;
 
-  if (!base64) {
-    return null;
+  try {
+    const readableUri =
+      typeof asset.base64 === 'string' && asset.base64.length > 0
+        ? asset.uri
+        : await (async () => {
+            if (!asset.uri.startsWith('content://')) {
+              return asset.uri;
+            }
+
+            if (!FileSystem.cacheDirectory) {
+              throw new Error('App cache directory is unavailable.');
+            }
+
+            const extensionMatch = asset.fileName?.match(/\.[a-zA-Z0-9]+$/);
+            const extension = extensionMatch?.[0] || '.jpg';
+            const copiedUri = `${FileSystem.cacheDirectory}picked-${createId('image-copy')}${extension}`;
+
+            await FileSystem.copyAsync({
+              from: asset.uri,
+              to: copiedUri,
+            });
+
+            temporaryReadableUri = copiedUri;
+            return copiedUri;
+          })();
+
+    const base64 =
+      typeof asset.base64 === 'string' && asset.base64.length > 0
+        ? asset.base64
+        : await FileSystem.readAsStringAsync(readableUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+    if (!base64) {
+      return null;
+    }
+
+    return {
+      id: createId('attachment'),
+      type: 'image',
+      source: 'local',
+      localUri: asset.uri,
+      mimeType: asset.mimeType || 'image/jpeg',
+      fileName: asset.fileName || asset.uri.split('/').pop() || 'image.jpg',
+      base64,
+    };
+  } finally {
+    if (temporaryReadableUri) {
+      await FileSystem.deleteAsync(temporaryReadableUri, { idempotent: true }).catch(() => null);
+    }
   }
-
-  return {
-    id: createId('attachment'),
-    type: 'image',
-    source: 'local',
-    localUri: asset.uri,
-    mimeType: asset.mimeType || 'image/jpeg',
-    fileName: asset.fileName || asset.uri.split('/').pop() || 'image.jpg',
-    base64,
-  };
 }
 
 async function transcribeAudio(
@@ -1151,29 +1184,42 @@ export function useRelayChat(options: UseRelayChatOptions) {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (!permission.granted) {
-      throw new Error('Photo library permission is required to attach images.');
+      if (!permission.granted) {
+        throw new Error('Photo library permission is required to attach images.');
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.85,
+        base64: true,
+        selectionLimit: 4,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const nextAttachments = (await Promise.all(
+        result.assets.map((asset) => toPendingImageAttachment(asset)),
+      )).filter((attachment): attachment is PendingImageAttachment => Boolean(attachment));
+
+      if (nextAttachments.length === 0) {
+        throw new Error('The selected image could not be prepared for upload.');
+      }
+
+      setPendingAttachments((current) => [...current, ...nextAttachments]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to attach the selected image.';
+      logRelayError('image attachment failed', {
+        message,
+      });
+      Alert.alert('Attachment failed', message);
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      quality: 0.85,
-      base64: true,
-      selectionLimit: 4,
-    });
-
-    if (result.canceled) {
-      return;
-    }
-
-    const nextAttachments = (await Promise.all(
-      result.assets.map((asset) => toPendingImageAttachment(asset)),
-    )).filter((attachment): attachment is PendingImageAttachment => Boolean(attachment));
-
-    setPendingAttachments((current) => [...current, ...nextAttachments]);
   }, [isStreaming]);
 
   const removeAttachment = useCallback((attachmentId: string) => {

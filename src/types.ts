@@ -45,6 +45,19 @@ export type ChatSessionSummary = {
   category: string;
 };
 
+export type ChatSessionBackup = {
+  sessionId: string;
+  pendingJobId: string | null;
+  messages: ChatMessage[];
+};
+
+export type ChatExportBundle = {
+  version: 1;
+  exportedAt: string;
+  app: 'codex-mobile';
+  sessions: ChatSessionBackup[];
+};
+
 export type TaskStatus = 'draft' | 'in-progress' | 'done';
 
 export type Task = {
